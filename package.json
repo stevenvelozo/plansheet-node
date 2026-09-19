@@ -1,0 +1,41 @@
+{
+	"name": "plansheet-node",
+	"version": "0.0.1",
+	"description": "The plansheet worker-node client: log in to your plansheet, get a fully configured connection to the Ultravisor hub, and run a native or dockerized runner.",
+	"main": "source/PlansheetNode.js",
+	"bin": {
+		"plansheet-node": "bin/plansheet-node.js"
+	},
+	"scripts": {
+		"test": "npx mocha -u tdd -R spec --exit ./test/*_tests.js"
+	},
+	"files": [
+		"source/",
+		"bin/",
+		"README.md"
+	],
+	"engines": {
+		"node": ">=18"
+	},
+	"keywords": [
+		"plansheet",
+		"ultravisor",
+		"beacon",
+		"runner",
+		"agent",
+		"node"
+	],
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/stevenvelozo/plansheet-node.git"
+	},
+	"author": "Steven Velozo <steven@velozo.com>",
+	"license": "MIT",
+	"dependencies": {
+		"ultravisor-beacon": "^1.0.8"
+	},
+	"devDependencies": {
+		"chai": "^4.3.4",
+		"mocha": "^10.0.0"
+	}
+}

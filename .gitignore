@@ -1,0 +1,22 @@
+# Dependencies
+node_modules/
+
+# Test / coverage output
+.nyc_output/
+coverage/
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS / editor cruft
+.DS_Store
+*.swp
+.idea/
+.vscode/
+
+# No lockfile is tracked (0.x sibling deps float, per the retold convention)
+package-lock.json
+
+# Local scratch
+tmp/
