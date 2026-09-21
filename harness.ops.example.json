@@ -1,0 +1,13 @@
+{
+	"_comment": "An ops node's harness config. It advertises the plansheet.ops capability, and for each action plansheet can dispatch, runs a configured command. RebuildDev clones prod into the dev database and reseeds the deterministic dev identity. This is what a plansheet.ops node runs on the box: point --harness (or HARNESS_CONFIG) at this file. Plansheet dispatches { Capability: plansheet.ops, Action: RebuildDev } through the hub; the node runs the command below and reports the RunStep back to plansheet. Adjust the script path to where deploy/scripts/rebuild-dev.sh lives on this box.",
+	"Capability": "plansheet.ops",
+	"MaxOutputBytes": 262144,
+	"Actions": {
+		"RebuildDev": {
+			"Description": "Rebuild the dev database from a fresh prod clone and reseed the deterministic dev identity.",
+			"Command": "bash",
+			"Args": ["/home/plansheet/plansheet-dev/deploy/scripts/rebuild-dev.sh", "--yes"],
+			"TimeoutMs": 1800000
+		}
+	}
+}

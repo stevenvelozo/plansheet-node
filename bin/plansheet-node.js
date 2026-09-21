@@ -27,6 +27,7 @@ const libClientConfig = require('../source/ClientConfig.js');
 const libLoginFlow = require('../source/LoginFlow.js');
 const libNodeRunner = require('../source/NodeRunner.js');
 const libHarnessCapability = require('../source/HarnessCapability.js');
+const libRunReportingCapability = require('../source/RunReportingCapability.js');
 const libDefaultHarness = require('../source/DefaultHarness.js');
 
 let _PackageVersion = '0.0.0';
@@ -267,12 +268,18 @@ async function commandRun(pArgs)
 	tmpHarnessConfig.Log = console;
 	let tmpHarness = new libHarnessCapability(tmpHarnessConfig);
 
+	// Wrap the harness in the reporting interface: when a dispatched unit carries a RunStep, the node reports the
+	// step's lifecycle (Running, progress, terminal + log) back to plansheet with its own token, and closes the
+	// Run -- which is what puts the action's output into the plansheet workflow view. Plain units pass through.
+	let tmpReportingClient = new libPlansheetClient({ BaseURL: tmpNode.PlansheetURL });
+	let tmpProvider = new libRunReportingCapability({ Inner: tmpHarness, Client: tmpReportingClient, NodeToken: tmpNode.NodeToken, Log: console });
+
 	let tmpRunner = new libNodeRunner(
 	{
 		PlansheetURL: tmpNode.PlansheetURL,
 		NodeToken: tmpNode.NodeToken,
 		HubURL: tmpHubURL,
-		Harness: tmpHarness,
+		Harness: tmpProvider,
 		Log: console
 	});
 
