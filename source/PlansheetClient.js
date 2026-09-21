@@ -173,6 +173,13 @@ class PlansheetClient
 		let tmpAuth = tmpOptions.Auth || {};
 		if (tmpAuth.Bearer) { tmpHeaders['Authorization'] = 'Bearer ' + tmpAuth.Bearer; }
 		else if (tmpAuth.SessionID) { tmpHeaders['Cookie'] = COOKIE_NAME + '=' + tmpAuth.SessionID; }
+		// A node authorized for many plan sheets targets one per request with X-Plansheet-Customer (an IDCustomer
+		// or a plan sheet Code). The server validates it against the node's authorized set and scopes the write to
+		// it. Omitted for a single-tenant node, which just acts in its home plan sheet.
+		if (tmpAuth.Customer !== undefined && tmpAuth.Customer !== null && String(tmpAuth.Customer) !== '' && String(tmpAuth.Customer) !== '0')
+		{
+			tmpHeaders['X-Plansheet-Customer'] = String(tmpAuth.Customer);
+		}
 
 		let tmpFetchOptions = { method: pMethod, headers: tmpHeaders };
 		if (tmpOptions.Body !== undefined)

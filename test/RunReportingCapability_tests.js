@@ -38,8 +38,8 @@ function fakeClient(pFail)
 	let tmpCalls = [];
 	return {
 		Calls: tmpCalls,
-		putRunStep: async (pID, pFields) => { tmpCalls.push({ m: 'putRunStep', id: pID, fields: pFields }); if (pFail) { throw new Error('report boom'); } return {}; },
-		putRun: async (pID, pFields) => { tmpCalls.push({ m: 'putRun', id: pID, fields: pFields }); if (pFail) { throw new Error('report boom'); } return {}; }
+		putRunStep: async (pID, pFields, pAuth) => { tmpCalls.push({ m: 'putRunStep', id: pID, fields: pFields, auth: pAuth }); if (pFail) { throw new Error('report boom'); } return {}; },
+		putRun: async (pID, pFields, pAuth) => { tmpCalls.push({ m: 'putRun', id: pID, fields: pFields, auth: pAuth }); if (pFail) { throw new Error('report boom'); } return {}; }
 	};
 }
 
@@ -97,6 +97,24 @@ suite('RunReportingCapability', () =>
 		Expect(tmpFailed).to.be.an('object');
 		Expect(tmpFailed.fields.Log).to.contain('boom');
 		Expect(tmpClient.Calls.find((pC) => pC.m === 'putRun').fields.Status).to.equal('Failed');
+	});
+
+	test('a Run whose Settings name a plan sheet reports with that plan sheet as the Customer target', async () =>
+	{
+		let tmpClient = fakeClient();
+		let tmpUnit = { WorkItemHash: 'wih2', Settings: { IDRun: 7, IDRunStep: 42, IDCustomer: 23, UnitKey: 'run:7:rebuild-dev' } };
+		await run(reporter(fakeInner({ result: { Outputs: { ExitCode: 0, Stdout: 'ok' }, Log: [] } }), tmpClient), tmpUnit);
+		// Every report -- Running, the terminal step, and the Run close -- targets the dispatching plan sheet.
+		Expect(tmpClient.Calls.length).to.be.greaterThan(0);
+		tmpClient.Calls.forEach((pCall) => { Expect(pCall.auth.Customer).to.equal(23); Expect(pCall.auth.Bearer).to.equal('pls_node'); });
+	});
+
+	test('a Run with no IDCustomer in Settings reports with no Customer target (single-tenant node)', async () =>
+	{
+		let tmpClient = fakeClient();
+		await run(reporter(fakeInner({ result: { Outputs: { ExitCode: 0, Stdout: 'ok' }, Log: [] } }), tmpClient), RUN_UNIT);
+		Expect(tmpClient.Calls.length).to.be.greaterThan(0);
+		tmpClient.Calls.forEach((pCall) => { Expect(pCall.auth.Customer).to.equal(undefined); });
 	});
 
 	test('a unit with no IDRunStep passes through with no reporting', async () =>

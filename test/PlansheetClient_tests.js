@@ -132,6 +132,33 @@ suite('PlansheetClient', () =>
 		Expect(tmpFetch.Calls[0].Options.headers['Authorization']).to.equal('Bearer pls_node');
 	});
 
+	test('putRunStep puts to the id-scoped route with the node bearer, id in path and body', async () =>
+	{
+		let tmpFetch = fakeFetch([ { method: 'PUT', path: '/1.0/RunStep/77', status: 200, body: { Success: true } } ]);
+		await client(tmpFetch).putRunStep(77, { Status: 'Running' }, { Bearer: 'pls_node' });
+		Expect(tmpFetch.Calls[0].URL).to.contain('/1.0/RunStep/77');
+		Expect(tmpFetch.Calls[0].Options.headers['Authorization']).to.equal('Bearer pls_node');
+		let tmpBody = JSON.parse(tmpFetch.Calls[0].Options.body);
+		Expect(tmpBody.IDRunStep).to.equal(77);
+		Expect(tmpBody.Status).to.equal('Running');
+		// No target plan sheet named: a single-tenant node sends no X-Plansheet-Customer.
+		Expect(tmpFetch.Calls[0].Options.headers['X-Plansheet-Customer']).to.equal(undefined);
+	});
+
+	test('a target plan sheet on Auth becomes the X-Plansheet-Customer header', async () =>
+	{
+		let tmpFetch = fakeFetch([ { method: 'PUT', path: '/1.0/RunStep/77', status: 200, body: { Success: true } } ]);
+		await client(tmpFetch).putRunStep(77, { Status: 'Succeeded' }, { Bearer: 'pls_node', Customer: 23 });
+		Expect(tmpFetch.Calls[0].Options.headers['X-Plansheet-Customer']).to.equal('23');
+	});
+
+	test('a zero or empty target plan sheet sends no X-Plansheet-Customer header', async () =>
+	{
+		let tmpFetch = fakeFetch([ { method: 'PUT', path: '/1.0/Run/5', status: 200, body: { Success: true } } ]);
+		await client(tmpFetch).putRun(5, { Status: 'Succeeded' }, { Bearer: 'pls_node', Customer: 0 });
+		Expect(tmpFetch.Calls[0].Options.headers['X-Plansheet-Customer']).to.equal(undefined);
+	});
+
 	test('a non-2xx with no special case throws a clean, tokenless error', async () =>
 	{
 		let tmpFetch = fakeFetch([ { method: 'POST', path: '/1.0/Token', status: 500, body: { Error: 'boom' } } ]);

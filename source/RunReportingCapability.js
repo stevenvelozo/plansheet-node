@@ -56,7 +56,12 @@ class RunReportingCapability
 			return this._Inner.execute(pAction, pWorkItem, pContext, fCallback, fReportProgress);
 		}
 
+		// The plan sheet this Run belongs to (dispatch stamps it into Settings). A node authorized for many plan
+		// sheets sends it as X-Plansheet-Customer so the report lands in the dispatching tenant; a single-tenant
+		// node has no IDCustomer here and reports into its home plan sheet.
+		let tmpIDCustomer = parseInt(tmpSettings.IDCustomer, 10);
 		let tmpAuth = { Bearer: this._NodeToken };
+		if (tmpIDCustomer > 0) { tmpAuth.Customer = tmpIDCustomer; }
 
 		// Mark the step Running (fire and forget; the work does not wait on it).
 		this._report(() => this._Client.putRunStep(tmpIDRunStep,
