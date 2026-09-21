@@ -140,6 +140,29 @@ class PlansheetClient
 		return tmpResult.Body || {};
 	}
 
+	// ----- run reporting (the node writes its own step + run over REST) -----
+
+	// PUT /1.0/RunStep/:id -- advance a run step (Status/StageLabel/HeartbeatDate/Log/...). Auto-CRUD update, so
+	// the id rides both the path and the body.
+	async putRunStep(pIDRunStep, pFields, pAuth)
+	{
+		let tmpID = parseInt(pIDRunStep, 10);
+		if (!(tmpID > 0)) { throw new Error('putRunStep: a RunStep id is required.'); }
+		let tmpResult = await this._request('PUT', '/1.0/RunStep/' + tmpID, { Body: Object.assign({ IDRunStep: tmpID }, pFields || {}), Auth: pAuth });
+		this._expectOK(tmpResult, 'RunStep update');
+		return tmpResult.Body || {};
+	}
+
+	// PUT /1.0/Run/:id -- close a run (Status/FinishedDate/ResultLog).
+	async putRun(pIDRun, pFields, pAuth)
+	{
+		let tmpID = parseInt(pIDRun, 10);
+		if (!(tmpID > 0)) { throw new Error('putRun: a Run id is required.'); }
+		let tmpResult = await this._request('PUT', '/1.0/Run/' + tmpID, { Body: Object.assign({ IDRun: tmpID }, pFields || {}), Auth: pAuth });
+		this._expectOK(tmpResult, 'Run update');
+		return tmpResult.Body || {};
+	}
+
 	// ----- internals -----
 
 	// pOptions: { Body?, Auth? } where Auth is { SessionID } (cookie) or { Bearer } (token). Returns { StatusCode, Body }.

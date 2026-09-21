@@ -19,10 +19,15 @@
  */
 
 const libReadline = require('readline');
+const libFS = require('fs');
+const libPath = require('path');
 
 const libPlansheetClient = require('../source/PlansheetClient.js');
 const libClientConfig = require('../source/ClientConfig.js');
 const libLoginFlow = require('../source/LoginFlow.js');
+const libNodeRunner = require('../source/NodeRunner.js');
+const libHarnessCapability = require('../source/HarnessCapability.js');
+const libDefaultHarness = require('../source/DefaultHarness.js');
 
 let _PackageVersion = '0.0.0';
 try { _PackageVersion = require('../package.json').version; } catch (pIgnore) { /* version is cosmetic */ }
@@ -40,7 +45,7 @@ const USAGE =
 	'  list      Show the node connections saved on this machine',
 	'  status    Alias for list',
 	'  logout    Forget a saved node on this machine (does not revoke it server-side)',
-	'  run       Start a runner for a saved node (ships in the next update)',
+	'  run       Start a runner for a saved node (blocks; Ctrl-C to stop)',
 	'  help      Show this message',
 	'',
 	'login options:',
@@ -49,6 +54,13 @@ const USAGE =
 	'  --email ADDRESS   account email (prompted if omitted)',
 	'  --name NAME       node name (a default like Matchbook-001 is offered if omitted)',
 	'  --label TEXT      free-text label for the node',
+	'  --home DIR        config directory (env PLANSHEET_HOME, default ~/.plansheet)',
+	'  --insecure        do not verify plansheet TLS (dev only)',
+	'',
+	'run options:',
+	'  plansheet-node run [name]   run the named node (or the only saved node)',
+	'  --hub URL         override the hub URL saved at login (env ULTRAVISOR_URL)',
+	'  --harness PATH    JSON harness config for what the node runs (default: a logging stub)',
 	'  --home DIR        config directory (env PLANSHEET_HOME, default ~/.plansheet)',
 	'  --insecure        do not verify plansheet TLS (dev only)',
 	''
@@ -169,7 +181,7 @@ async function commandLogin(pArgs)
 	console.log('  Hub:         ' + (tmpResult.HubURL || '(not set -- pass --hub or ULTRAVISOR_URL before running)'));
 	console.log('  Saved:       ' + tmpResult.ConfigPath);
 	console.log('');
-	console.log('Next: plansheet-node run ' + require('../source/ClientConfig.js').slug(tmpResult.NodeName) + '   (runner ships in the next update)');
+	console.log('Next: plansheet-node run ' + libClientConfig.slug(tmpResult.NodeName));
 }
 
 function commandList(pArgs)
@@ -209,10 +221,89 @@ async function commandLogout(pArgs)
 	else { console.log('No saved node matched "' + tmpTarget + '".'); }
 }
 
-function commandRun()
+// Resolve which saved node to run: an explicit name/slug, or the only saved node if there is exactly one.
+function resolveNode(pConfig, pTarget)
 {
-	console.log('The runner ships in the next update. `login` is ready today -- your connection is saved and the');
-	console.log('server-side node is provisioned and approved.');
+	if (pTarget)
+	{
+		let tmpNode = pConfig.loadNode(pTarget);
+		if (!tmpNode) { throw new Error('No saved node matched "' + pTarget + '". Run: plansheet-node list'); }
+		return tmpNode;
+	}
+	let tmpNodes = pConfig.listNodes();
+	if (tmpNodes.length === 0) { throw new Error('No nodes saved on this machine. Run: plansheet-node login'); }
+	if (tmpNodes.length > 1)
+	{
+		throw new Error('Several nodes are saved; name one: ' + tmpNodes.map((pN) => pN.Slug || pN.NodeName).join(', '));
+	}
+	return tmpNodes[0];
+}
+
+function loadHarnessConfig(pPath)
+{
+	if (!pPath) { return libDefaultHarness(); }
+	let tmpResolved = libPath.resolve(pPath);
+	let tmpText;
+	try { tmpText = libFS.readFileSync(tmpResolved, 'utf8'); }
+	catch (pError) { throw new Error('Could not read harness config ' + tmpResolved + ' (' + pError.message + ').'); }
+	try { return JSON.parse(tmpText); }
+	catch (pIgnore) { throw new Error('Harness config ' + tmpResolved + ' is not valid JSON.'); }
+}
+
+async function commandRun(pArgs)
+{
+	if (pArgs.insecure)
+	{
+		process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+		console.warn('[plansheet-node] TLS verification disabled (--insecure); use for local development only.');
+	}
+
+	let tmpConfig = new libClientConfig({ Home: pArgs.home || process.env.PLANSHEET_HOME });
+	let tmpNode = resolveNode(tmpConfig, pArgs._[1]);
+	let tmpHubURL = pArgs.hub || process.env.ULTRAVISOR_URL || tmpNode.HubURL || '';
+	if (!tmpHubURL) { throw new Error('No hub URL for this node. Pass --hub or set ULTRAVISOR_URL.'); }
+
+	let tmpHarnessConfig = loadHarnessConfig(pArgs.harness);
+	tmpHarnessConfig.Log = console;
+	let tmpHarness = new libHarnessCapability(tmpHarnessConfig);
+
+	let tmpRunner = new libNodeRunner(
+	{
+		PlansheetURL: tmpNode.PlansheetURL,
+		NodeToken: tmpNode.NodeToken,
+		HubURL: tmpHubURL,
+		Harness: tmpHarness,
+		Log: console
+	});
+
+	console.log('[plansheet-node] Starting node "' + (tmpNode.NodeName || tmpNode.Slug) + '"');
+	console.log('[plansheet-node]   plansheet: ' + tmpNode.PlansheetURL);
+	console.log('[plansheet-node]   hub:       ' + tmpHubURL);
+	console.log('[plansheet-node]   capability: ' + tmpHarness.Capability + ' [' + Object.keys(tmpHarness.actions).join(', ') + ']');
+
+	let tmpResult = await tmpRunner.start();
+	if (!tmpResult.Started)
+	{
+		console.error('[plansheet-node] Did not join: ' + tmpResult.Reason);
+		return 2;
+	}
+	console.log('[plansheet-node] Connected as ' + tmpResult.BeaconName + '. Waiting for work. Press Ctrl-C to stop.');
+
+	// Hold the process open until a signal; the beacon's heartbeat keeps the event loop live on its own.
+	let tmpShutting = false;
+	let fShutdown = (pSignal) =>
+	{
+		if (tmpShutting) { return; }
+		tmpShutting = true;
+		console.log('\n[plansheet-node] caught ' + pSignal + ', disconnecting...');
+		tmpRunner.stop(() => process.exit(0));
+		setTimeout(() => process.exit(0), 5000).unref();
+	};
+	process.on('SIGINT', () => fShutdown('SIGINT'));
+	process.on('SIGTERM', () => fShutdown('SIGTERM'));
+
+	// Never resolve: run() blocks until a signal calls process.exit above.
+	return await new Promise(() => {});
 }
 
 // ----- main -----
@@ -231,7 +322,7 @@ async function main()
 		case 'list':
 		case 'status': commandList(tmpArgs); return 0;
 		case 'logout': await commandLogout(tmpArgs); return 0;
-		case 'run': commandRun(); return 0;
+		case 'run': return await commandRun(tmpArgs);
 		default:
 			console.error('Unknown command: ' + tmpCommand);
 			console.error(USAGE);
