@@ -60,6 +60,16 @@ suite('HarnessCapability', () =>
 		Expect(tmpResult.Result.Outputs.Stdout).to.contain('item-99');
 	});
 
+	test('delivers a Task input (Settings.Input) on stdin and as the {Input} placeholder', async () =>
+	{
+		// The command reads the input two ways: {Input} substituted into an arg, and the same text on stdin (cat).
+		let tmpProvider = harness({ Ask: { Command: '/bin/sh', Args: [ '-c', 'echo "arg=[{Input}]"; echo "stdin=[$(cat)]"' ] } });
+		let tmpResult = await run(tmpProvider, 'Ask', { Settings: { Input: 'how many widgets?' } });
+		Expect(tmpResult.Err).to.equal(null);
+		Expect(tmpResult.Result.Outputs.Stdout).to.contain('arg=[how many widgets?]');
+		Expect(tmpResult.Result.Outputs.Stdout).to.contain('stdin=[how many widgets?]');
+	});
+
 	test('a non-zero exit is a failure, with the captured output on the error', async () =>
 	{
 		let tmpProvider = harness({ RunWorkItem: { Command: '/bin/sh', Args: [ '-c', 'echo oops 1>&2; exit 3' ] } });

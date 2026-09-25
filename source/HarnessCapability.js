@@ -12,7 +12,9 @@
  * Config: { Capability, Actions: { <ActionName>: { Command, Args?, Cwd?, Env?, TimeoutMs?, Description? } }, MaxOutputBytes?, StripEnv? }.
  * The executor receives the work item as environment (PLANSHEET_IDWORKITEM, PLANSHEET_WORKITEM_NUMBER,
  * PLANSHEET_WORKITEM_TITLE, PLANSHEET_WORKITEM_HASH, PLANSHEET_ACTION, PLANSHEET_UNITKEY, PLANSHEET_STAGING) plus
- * any configured Env, and {Placeholder} substitution in Args from the same fields. Exit 0 is success; anything
+ * any configured Env, and {Placeholder} substitution in Args from the same fields. A Task-backed dispatch also
+ * carries one runtime input (Settings.Input -- a user's question, a filled prompt shape, a SQL query): it is
+ * written to the command's stdin and available as the {Input} placeholder in Args. Exit 0 is success; anything
  * else (or a spawn error or a timeout) is a failure the hub records and plansheet re-drives.
  *
  * @author Steven Velozo <steven@velozo.com>
@@ -80,6 +82,10 @@ class HarnessCapability extends libCapabilityProviderBase
 		let tmpWorkItem = pWorkItem || {};
 		let tmpSettings = tmpWorkItem.Settings || {};
 		let tmpContext = pContext || {};
+		// The user's assembled input for a Task-backed dispatch (a question, a filled prompt shape, a SQL
+		// query), delivered on the command's stdin below and available as the {Input} placeholder in Args.
+		// This is the one deliberate runtime value a dispatch carries; empty for ordinary ops dispatches.
+		let tmpInput = (tmpSettings.Input !== undefined && tmpSettings.Input !== null) ? String(tmpSettings.Input) : '';
 
 		let tmpBaseEnv =
 		{
@@ -109,7 +115,8 @@ class HarnessCapability extends libCapabilityProviderBase
 			WorkItemHash: tmpWorkItem.WorkItemHash,
 			UnitKey: tmpSettings.UnitKey,
 			Action: pAction,
-			Staging: tmpContext.StagingPath
+			Staging: tmpContext.StagingPath,
+			Input: tmpSettings.Input
 		};
 		let tmpArgs = (Array.isArray(tmpActionConfig.Args) ? tmpActionConfig.Args : [])
 			.map((pArg) => this._substitute(String(pArg), tmpSubs));
@@ -124,7 +131,13 @@ class HarnessCapability extends libCapabilityProviderBase
 		try { tmpChild = this._Spawn(tmpActionConfig.Command, tmpArgs, { cwd: tmpCwd, env: tmpEnv, detached: true }); }
 		catch (pError) { return fCallback(new Error('HarnessCapability: failed to spawn "' + tmpActionConfig.Command + '": ' + pError.message)); }
 		// The executor gets no interactive stdin: end it so a command that reads stdin sees EOF instead of hanging.
-		if (tmpChild.stdin) { try { tmpChild.stdin.end(); } catch (pIgnore) { /* stdin may already be closed */ } }
+		// Deliver any Task input on stdin (unbounded, no shell quoting), then EOF; a command that wants it as
+		// an argument uses the {Input} placeholder instead. No input still ends stdin so a reader sees EOF.
+		if (tmpChild.stdin)
+		{
+			try { if (tmpInput) { tmpChild.stdin.write(tmpInput); } tmpChild.stdin.end(); }
+			catch (pIgnore) { /* stdin may already be closed */ }
+		}
 
 		let tmpSettled = false;
 		let tmpStdout = '';
