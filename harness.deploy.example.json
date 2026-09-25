@@ -1,0 +1,19 @@
+{
+	"_comment": "A deploy node's harness config. It advertises the plansheet.deploy capability, and for each action plansheet can dispatch, runs a configured command. Plansheet dispatches { Capability: plansheet.deploy, Action: DeployDev } (or DeployProd) through the hub -- the action name IS the whole instruction, exactly like the ops node's RebuildDev. There are no dispatched parameters: DeployDev and DeployProd are DISTINCT actions, each mapped below to a fully specified command, so adding or changing a deploy target is a change to THIS file only, never to plansheet or the node code. Point --harness (or HARNESS_CONFIG) at this file, and set each Command/Args to YOUR real deploy entrypoint (the plansheet-deploy-tool `pdt`, deploy-core, or a wrapper script). The example calls a deploy wrapper you provide; replace it with your actual invocation.",
+	"Capability": "plansheet.deploy",
+	"MaxOutputBytes": 262144,
+	"Actions": {
+		"DeployDev": {
+			"Description": "Deploy the dev environment.",
+			"Command": "bash",
+			"Args": ["/home/plansheet/plansheet/deploy/scripts/deploy.sh", "dev"],
+			"TimeoutMs": 1800000
+		},
+		"DeployProd": {
+			"Description": "Deploy (promote to) the prod environment.",
+			"Command": "bash",
+			"Args": ["/home/plansheet/plansheet/deploy/scripts/deploy.sh", "prod"],
+			"TimeoutMs": 1800000
+		}
+	}
+}
