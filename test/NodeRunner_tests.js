@@ -130,6 +130,15 @@ suite('NodeRunner', () =>
 			Expect(tmpConfig.Tags.Capabilities).to.equal('plansheet.software');
 			Expect(tmpConfig.FailStartOnRejection).to.equal(true);
 		});
+
+		test('aggregates the capabilities of several providers so one node can carry many', () =>
+		{
+			let tmpQuery = { Capability: 'plansheet.query', getCapabilities: () => [ 'plansheet.query' ], execute: () => {} };
+			let tmpAssistant = { Capability: 'plansheet.assistant', getCapabilities: () => [ 'plansheet.assistant' ], execute: () => {} };
+			let tmpConfig = libNodeRunner.buildBeaconConfig(activeSelf(), { HubURL: 'wss://hub', NodeToken: 'pls_node', Providers: [ tmpQuery, tmpAssistant ] });
+			Expect(tmpConfig.Providers.length).to.equal(2);
+			Expect(tmpConfig.Tags.Capabilities).to.equal('plansheet.query,plansheet.assistant');
+		});
 	});
 
 	suite('start', () =>

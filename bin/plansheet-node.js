@@ -61,7 +61,9 @@ const USAGE =
 	'run options:',
 	'  plansheet-node run [name]   run the named node (or the only saved node)',
 	'  --hub URL         override the hub URL saved at login (env ULTRAVISOR_URL)',
-	'  --harness PATH    JSON harness config for what the node runs (default: a logging stub)',
+	'  --harness PATH    JSON harness config for what the node runs (default: a logging stub).',
+	'                    Comma-separate several to carry more than one capability at once, e.g.',
+	'                    --harness harness.query.example.json,harness.assistant.example.json',
 	'  --home DIR        config directory (env PLANSHEET_HOME, default ~/.plansheet)',
 	'  --insecure        do not verify plansheet TLS (dev only)',
 	''
@@ -264,29 +266,39 @@ async function commandRun(pArgs)
 	let tmpHubURL = pArgs.hub || process.env.ULTRAVISOR_URL || tmpNode.HubURL || '';
 	if (!tmpHubURL) { throw new Error('No hub URL for this node. Pass --hub or set ULTRAVISOR_URL.'); }
 
-	let tmpHarnessConfig = loadHarnessConfig(pArgs.harness);
-	tmpHarnessConfig.Log = console;
-	let tmpHarness = new libHarnessCapability(tmpHarnessConfig);
-
-	// Wrap the harness in the reporting interface: when a dispatched unit carries a RunStep, the node reports the
-	// step's lifecycle (Running, progress, terminal + log) back to plansheet with its own token, and closes the
-	// Run -- which is what puts the action's output into the plansheet workflow view. Plain units pass through.
+	// One node can carry several capabilities: pass --harness a comma-separated list of configs (e.g.
+	// harness.query.example.json,harness.assistant.example.json) and each becomes its own capability provider,
+	// so a single runner answers plansheet.query AND plansheet.assistant at once. An empty list is the default
+	// logging stub. Each provider is wrapped in the reporting interface so a dispatched unit that carries a
+	// RunStep reports its lifecycle (Running, progress, terminal + log) back to plansheet and closes the Run --
+	// which is what puts the action's output into the workflow view. Plain units pass through.
+	let tmpHarnessPaths = String(pArgs.harness || '').split(',').map((pPath) => pPath.trim()).filter(Boolean);
+	if (!tmpHarnessPaths.length) { tmpHarnessPaths = [ null ]; }
 	let tmpReportingClient = new libPlansheetClient({ BaseURL: tmpNode.PlansheetURL });
-	let tmpProvider = new libRunReportingCapability({ Inner: tmpHarness, Client: tmpReportingClient, NodeToken: tmpNode.NodeToken, Log: console });
+	let tmpProviders = [];
+	let tmpCapabilityLabels = [];
+	for (let i = 0; i < tmpHarnessPaths.length; i++)
+	{
+		let tmpHarnessConfig = loadHarnessConfig(tmpHarnessPaths[i]);
+		tmpHarnessConfig.Log = console;
+		let tmpHarness = new libHarnessCapability(tmpHarnessConfig);
+		tmpProviders.push(new libRunReportingCapability({ Inner: tmpHarness, Client: tmpReportingClient, NodeToken: tmpNode.NodeToken, Log: console }));
+		tmpCapabilityLabels.push(tmpHarness.Capability + ' [' + Object.keys(tmpHarness.actions).join(', ') + ']');
+	}
 
 	let tmpRunner = new libNodeRunner(
 	{
 		PlansheetURL: tmpNode.PlansheetURL,
 		NodeToken: tmpNode.NodeToken,
 		HubURL: tmpHubURL,
-		Harness: tmpProvider,
+		Providers: tmpProviders,
 		Log: console
 	});
 
 	console.log('[plansheet-node] Starting node "' + (tmpNode.NodeName || tmpNode.Slug) + '"');
 	console.log('[plansheet-node]   plansheet: ' + tmpNode.PlansheetURL);
 	console.log('[plansheet-node]   hub:       ' + tmpHubURL);
-	console.log('[plansheet-node]   capability: ' + tmpHarness.Capability + ' [' + Object.keys(tmpHarness.actions).join(', ') + ']');
+	console.log('[plansheet-node]   capabilities: ' + tmpCapabilityLabels.join('; '));
 
 	let tmpResult = await tmpRunner.start();
 	if (!tmpResult.Started)

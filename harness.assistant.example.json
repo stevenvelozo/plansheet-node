@@ -1,0 +1,13 @@
+{
+	"_comment": "An assistant node's harness config (V50 User Tasks). It advertises plansheet.assistant and answers the Answer action by handing the assembled prompt (arriving on STDIN) to a model and printing the model's reply as the answer. Plansheet dispatches { Capability: plansheet.assistant, Action: Answer } for a task whose prompt shape assembles to a question; the assembled prompt arrives on this command's stdin (and as the {Input} placeholder), and whatever the command prints on stdout becomes the answer shown on the request. The default below pipes the prompt to the Claude Code CLI in print mode (`claude -p`), which must be installed and authenticated on the node; swap Command/Args for your own model (for example `ollama run llama3`, or a curl to an API that reads stdin) to run a local or remote model instead. The node strips its own credential (NODE_TOKEN) from the executor, but any model API key you set in the node's environment is passed through so the command can authenticate.",
+	"Capability": "plansheet.assistant",
+	"MaxOutputBytes": 262144,
+	"Actions": {
+		"Answer": {
+			"Description": "Answer the assembled question with a model and return its reply as markdown.",
+			"Command": "bash",
+			"Args": ["-c", "claude -p"],
+			"TimeoutMs": 300000
+		}
+	}
+}
