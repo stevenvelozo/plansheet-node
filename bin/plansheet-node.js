@@ -64,6 +64,9 @@ const USAGE =
 	'  --harness PATH    JSON harness config for what the node runs (default: a logging stub).',
 	'                    Comma-separate several to carry more than one capability at once, e.g.',
 	'                    --harness harness.query.example.json,harness.assistant.example.json',
+	'  --packages SPEC   load capability packages from plansheet with the node token: "all" for every',
+	'                    package this plan sheet offers, or a comma-separated list of PackageKeys.',
+	'                    Combines with --harness.',
 	'  --home DIR        config directory (env PLANSHEET_HOME, default ~/.plansheet)',
 	'  --insecure        do not verify plansheet TLS (dev only)',
 	''
@@ -272,19 +275,49 @@ async function commandRun(pArgs)
 	// logging stub. Each provider is wrapped in the reporting interface so a dispatched unit that carries a
 	// RunStep reports its lifecycle (Running, progress, terminal + log) back to plansheet and closes the Run --
 	// which is what puts the action's output into the workflow view. Plain units pass through.
+	// A node's capabilities come from two sources, and can be combined:
+	//   --harness a,b,c        local JSON configs (dev), each becoming a capability
+	//   --packages all|k1,k2   capability packages fetched from Plansheet with the node token (managed centrally)
+	// Each becomes its own provider, so one runner can answer several capabilities at once. With neither flag the
+	// default logging stub runs. Every provider is wrapped in the reporting interface so a dispatched unit that
+	// carries a RunStep reports its lifecycle back to plansheet and closes the Run; plain units pass through.
 	let tmpHarnessPaths = String(pArgs.harness || '').split(',').map((pPath) => pPath.trim()).filter(Boolean);
-	if (!tmpHarnessPaths.length) { tmpHarnessPaths = [ null ]; }
+	let tmpPackageSpec = (pArgs.packages === true) ? 'all' : String(pArgs.packages || '').trim();
 	let tmpReportingClient = new libPlansheetClient({ BaseURL: tmpNode.PlansheetURL });
 	let tmpProviders = [];
 	let tmpCapabilityLabels = [];
-	for (let i = 0; i < tmpHarnessPaths.length; i++)
+	let fAddHarness = (pConfig) =>
 	{
-		let tmpHarnessConfig = loadHarnessConfig(tmpHarnessPaths[i]);
-		tmpHarnessConfig.Log = console;
-		let tmpHarness = new libHarnessCapability(tmpHarnessConfig);
+		pConfig.Log = console;
+		let tmpHarness = new libHarnessCapability(pConfig);
 		tmpProviders.push(new libRunReportingCapability({ Inner: tmpHarness, Client: tmpReportingClient, NodeToken: tmpNode.NodeToken, Log: console }));
 		tmpCapabilityLabels.push(tmpHarness.Capability + ' [' + Object.keys(tmpHarness.actions).join(', ') + ']');
+	};
+
+	for (let i = 0; i < tmpHarnessPaths.length; i++) { fAddHarness(loadHarnessConfig(tmpHarnessPaths[i])); }
+
+	if (tmpPackageSpec)
+	{
+		// Fetch this plan sheet's capability packages with the node token; build one provider per manifest.
+		// --packages all loads every Available package; --packages k1,k2 loads only those PackageKeys.
+		let tmpPackages = await tmpReportingClient.capabilityPackages({ Bearer: tmpNode.NodeToken });
+		if (tmpPackageSpec !== 'all')
+		{
+			let tmpWanted = {};
+			tmpPackageSpec.split(',').map((pKey) => pKey.trim()).filter(Boolean).forEach((pKey) => { tmpWanted[pKey] = true; });
+			tmpPackages = tmpPackages.filter((pPackage) => tmpWanted[pPackage.PackageKey]);
+		}
+		tmpPackages.forEach((pPackage) =>
+		{
+			let tmpManifest = pPackage.Manifest || {};
+			fAddHarness({ Capability: tmpManifest.Capability || pPackage.Capability, Actions: tmpManifest.Actions || {}, MaxOutputBytes: tmpManifest.MaxOutputBytes });
+		});
+		console.log('[plansheet-node]   loaded ' + tmpPackages.length + ' capability package(s) from plansheet');
 	}
+
+	// Neither flag gave a working provider (no --harness, or --packages returned none): fall back to the stub so
+	// the node still joins and logs, rather than starting with nothing to answer.
+	if (!tmpProviders.length) { fAddHarness(loadHarnessConfig(null)); }
 
 	let tmpRunner = new libNodeRunner(
 	{

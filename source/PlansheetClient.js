@@ -132,6 +132,16 @@ class PlansheetClient
 		return tmpResult.Body || {};
 	}
 
+	// GET /1.0/CapabilityPackages/Available -- the capability packages this node's plan sheet offers (platform
+	// built-ins cascaded with tenant packages). Returns the Packages array; each carries { PackageKey, Capability,
+	// Version, Manifest } where Manifest.Actions is the harness shape the node builds a provider from.
+	async capabilityPackages(pAuth)
+	{
+		let tmpResult = await this._request('GET', '/1.0/CapabilityPackages/Available', { Auth: pAuth });
+		this._expectOK(tmpResult, 'CapabilityPackages/Available');
+		return (tmpResult.Body && Array.isArray(tmpResult.Body.Packages)) ? tmpResult.Body.Packages : [];
+	}
+
 	// GET /1.0/Node/Agents (user bearer) -> agents with ActiveNodeCount, used to pick a default node name/ordinal.
 	async listAgents(pAuth)
 	{

@@ -159,6 +159,22 @@ suite('PlansheetClient', () =>
 		Expect(tmpFetch.Calls[0].Options.headers['X-Plansheet-Customer']).to.equal(undefined);
 	});
 
+	test('capabilityPackages sends the node bearer and returns the Packages array', async () =>
+	{
+		let tmpFetch = fakeFetch([ { method: 'GET', path: '/1.0/CapabilityPackages/Available', status: 200, body: { Packages: [ { PackageKey: 'plansheet-query', Capability: 'plansheet.query', Manifest: { Actions: { RunSQL: {} } } } ] } } ]);
+		let tmpPackages = await client(tmpFetch).capabilityPackages({ Bearer: 'pls_node' });
+		Expect(tmpPackages.length).to.equal(1);
+		Expect(tmpPackages[0].PackageKey).to.equal('plansheet-query');
+		Expect(tmpFetch.Calls[0].Options.headers['Authorization']).to.equal('Bearer pls_node');
+	});
+
+	test('capabilityPackages returns an empty array when the body carries no Packages', async () =>
+	{
+		let tmpFetch = fakeFetch([ { method: 'GET', path: '/1.0/CapabilityPackages/Available', status: 200, body: {} } ]);
+		let tmpPackages = await client(tmpFetch).capabilityPackages({ Bearer: 'pls_node' });
+		Expect(tmpPackages).to.deep.equal([]);
+	});
+
 	test('a non-2xx with no special case throws a clean, tokenless error', async () =>
 	{
 		let tmpFetch = fakeFetch([ { method: 'POST', path: '/1.0/Token', status: 500, body: { Error: 'boom' } } ]);
