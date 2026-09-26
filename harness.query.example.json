@@ -1,0 +1,13 @@
+{
+	"_comment": "A query node's harness config (V50 User Tasks). It advertises plansheet.query and answers the RunSQL action by running the SQL it receives on STDIN against a database connection, printing the rows as the answer. Plansheet dispatches { Capability: plansheet.query, Action: RunSQL } for a task whose prompt shape assembles to a SQL query; the assembled SQL arrives on this command's stdin (and is also available as the {Input} placeholder). SAFETY, READ THIS: this command runs whatever SQL it is handed, so point PLANSHEET_QUERY_DB_URL at a READ-ONLY Postgres role -- the read-only role IS the safety boundary. Author tasks with the whole query in a Fixed shape segment (see dev/user-tasks-seed.js), never with user-substituted SQL text, so a person filling a form can never change the query. Replace Command/Args with your own psql (or a query runner) and set PLANSHEET_QUERY_DB_URL in the node's environment before starting the runner.",
+	"Capability": "plansheet.query",
+	"MaxOutputBytes": 262144,
+	"Actions": {
+		"RunSQL": {
+			"Description": "Run the SQL received on stdin against a read-only database connection and return the rows (tab separated).",
+			"Command": "bash",
+			"Args": ["-c", "psql \"$PLANSHEET_QUERY_DB_URL\" -X -A -F $'\\t' -P footer=off -v ON_ERROR_STOP=1 -f -"],
+			"TimeoutMs": 120000
+		}
+	}
+}

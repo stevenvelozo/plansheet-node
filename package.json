@@ -1,6 +1,6 @@
 {
 	"name": "plansheet-node",
-	"version": "1.2.0",
+	"version": "1.2.1",
 	"description": "The plansheet worker-node client: log in to your plansheet, get a fully configured connection to the Ultravisor hub, and run a native or dockerized runner.",
 	"main": "source/PlansheetNode.js",
 	"bin": {
@@ -14,6 +14,7 @@
 		"bin/",
 		"harness.ops.example.json",
 		"harness.deploy.example.json",
+		"harness.query.example.json",
 		"README.md"
 	],
 	"engines": {
