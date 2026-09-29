@@ -84,6 +84,15 @@ suite('LoginFlow', () =>
 		Expect(fCall('register').pOpts.NodeKey).to.match(/^nk-testhost-[0-9a-f]{8}$/);
 	});
 
+	test('passes the managed-by tenant and grant set through to provision (WI #506)', async () =>
+	{
+		let tmpClient = fakeClient();
+		await flow(tmpClient, fakeConfig()).run(Object.assign(baseOptions(), { IDManagedCustomer: 1, Plansheets: [ 1, 5 ] }));
+		let tmpProvision = tmpClient.Calls.find((pC) => pC.m === 'provision');
+		Expect(tmpProvision.pOpts.IDManagedCustomer).to.equal(1);
+		Expect(tmpProvision.pOpts.Plansheets).to.deep.equal([ 1, 5 ]);
+	});
+
 	test('2FA path: prompts for the code and verifies', async () =>
 	{
 		let tmpClient = fakeClient({ login: async () => ({ LoggedIn: false, Challenge: true, ChallengeToken: 'ct-1', Channel: 'email' }) });

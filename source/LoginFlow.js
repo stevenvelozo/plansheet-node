@@ -65,7 +65,10 @@ class LoginFlow
 		// 3. Name and provision the node.
 		let tmpNodeName = await this._resolveNodeName(tmpOptions);
 		this._notify('Provisioning node "' + tmpNodeName + '"...');
-		let tmpProvision = await this._Client.provisionNode({ AgentName: tmpNodeName, Label: tmpOptions.Label || tmpNodeName }, { Bearer: tmpUserToken });
+		let tmpProvision = await this._Client.provisionNode(
+			{ AgentName: tmpNodeName, Label: tmpOptions.Label || tmpNodeName,
+				IDManagedCustomer: tmpOptions.IDManagedCustomer, Plansheets: tmpOptions.Plansheets },
+			{ Bearer: tmpUserToken });
 		let tmpNodeToken = tmpProvision.Token;
 		let tmpRegistration = tmpProvision.NodeRegistration || {};
 		let tmpIDRegistration = tmpRegistration.IDNodeRegistration;

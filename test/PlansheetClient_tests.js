@@ -98,6 +98,21 @@ suite('PlansheetClient', () =>
 		Expect(JSON.parse(tmpFetch.Calls[0].Options.body).AgentName).to.equal('Matchbook-001');
 	});
 
+	test('provisionNode forwards the managed-by tenant and grant set when given, omits them otherwise', async () =>
+	{
+		let tmpFetch = fakeFetch([ { method: 'POST', path: '/1.0/Node/Provision', status: 200, body: { Success: true, Token: 'pls_node', NodeRegistration: { IDNodeRegistration: 3 } } } ]);
+		await client(tmpFetch).provisionNode({ AgentName: 'D', IDManagedCustomer: 1, Plansheets: [ 1, 5 ] }, { Bearer: 'pls_user' });
+		let tmpSent = JSON.parse(tmpFetch.Calls[0].Options.body);
+		Expect(tmpSent.IDManagedCustomer).to.equal(1);
+		Expect(tmpSent.Plansheets).to.deep.equal([ 1, 5 ]);
+
+		let tmpFetch2 = fakeFetch([ { method: 'POST', path: '/1.0/Node/Provision', status: 200, body: { Success: true, Token: 'pls_node', NodeRegistration: { IDNodeRegistration: 4 } } } ]);
+		await client(tmpFetch2).provisionNode({ AgentName: 'D' }, { Bearer: 'pls_user' });
+		let tmpSent2 = JSON.parse(tmpFetch2.Calls[0].Options.body);
+		Expect(tmpSent2).to.not.have.property('IDManagedCustomer');
+		Expect(tmpSent2).to.not.have.property('Plansheets');
+	});
+
 	test('provisionNode maps a 403 to a role-hint error', async () =>
 	{
 		let tmpFetch = fakeFetch([ { method: 'POST', path: '/1.0/Node/Provision', status: 403, body: { Error: 'content.approve is required' } } ]);

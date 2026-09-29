@@ -54,6 +54,8 @@ const USAGE =
 	'  --hub URL         Ultravisor hub URL the runner will connect to (env ULTRAVISOR_URL)',
 	'  --email ADDRESS   account email (prompted if omitted)',
 	'  --name NAME       node name (a default like Matchbook-001 is offered if omitted)',
+	'  --managed-by ID   IDCustomer of the plan sheet that ADMINISTERS the node (default: your session tenant)',
+	'  --grant ID[,ID]   IDCustomer(s) the node may ACT in (default: just the managed-by tenant)',
 	'  --label TEXT      free-text label for the node',
 	'  --home DIR        config directory (env PLANSHEET_HOME, default ~/.plansheet)',
 	'  --insecure        do not verify plansheet TLS (dev only)',
@@ -169,6 +171,14 @@ async function commandLogin(pArgs)
 		}
 	});
 
+	// Ownerless-node scope (WI #506): target the managed-by tenant and grant set explicitly, so a deploy
+	// node lands in customer 1 (where the deploy toolchains live) no matter which plan sheet the CLI account
+	// defaults to. Both optional; omitted, the server defaults managed-by to the session tenant.
+	let tmpManagedBy = parseInt(pArgs['managed-by'], 10) || 0;
+	let tmpGrant = (typeof pArgs.grant === 'string')
+		? pArgs.grant.split(',').map((pV) => parseInt(pV, 10)).filter((pN) => pN > 0)
+		: undefined;
+
 	let tmpResult = await tmpFlow.run(
 	{
 		PlansheetURL: tmpURL,
@@ -176,7 +186,9 @@ async function commandLogin(pArgs)
 		UserName: tmpEmail,
 		Password: tmpPassword,
 		NodeName: pArgs.name,
-		Label: pArgs.label
+		Label: pArgs.label,
+		IDManagedCustomer: tmpManagedBy || undefined,
+		Plansheets: tmpGrant
 	});
 
 	console.log('');

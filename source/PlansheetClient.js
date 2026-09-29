@@ -93,6 +93,11 @@ class PlansheetClient
 		if (pOptions && pOptions.IDAgentUser) { tmpBody.IDAgentUser = pOptions.IDAgentUser; }
 		else { tmpBody.AgentName = String((pOptions && pOptions.AgentName) || '').trim(); }
 		if (pOptions && pOptions.Label) { tmpBody.Label = pOptions.Label; }
+		// Ownerless-node scope (WI #506): the managed-by tenant (which plan sheet administers the node) and the
+		// grant set (where it may act). Both optional; the server floors them by the caller's own membership and
+		// defaults managed-by to the session tenant and the grant to [managed] when omitted.
+		if (pOptions && pOptions.IDManagedCustomer) { tmpBody.IDManagedCustomer = pOptions.IDManagedCustomer; }
+		if (pOptions && Array.isArray(pOptions.Plansheets)) { tmpBody.Plansheets = pOptions.Plansheets; }
 		let tmpResult = await this._request('POST', '/1.0/Node/Provision', { Body: tmpBody, Auth: pAuth });
 		if (tmpResult.StatusCode === 403) { throw new Error('Not allowed to provision a node (needs the Owner or Admin role on this plan sheet).'); }
 		this._expectOK(tmpResult, 'Node/Provision');
