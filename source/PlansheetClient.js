@@ -118,6 +118,16 @@ class PlansheetClient
 		return tmpResult.Body || {};
 	}
 
+	// POST /1.0/Node/Self/Capabilities { Capabilities: [{ Capability, Actions:[name] }] } (node bearer). Tells
+	// plansheet what this node advertises, so the activation UI can list it as a candidate (V51, F153).
+	async reportCapabilities(pCapabilities, pAuth)
+	{
+		let tmpBody = { Capabilities: Array.isArray(pCapabilities) ? pCapabilities : [] };
+		let tmpResult = await this._request('POST', '/1.0/Node/Self/Capabilities', { Body: tmpBody, Auth: pAuth });
+		this._expectOK(tmpResult, 'Node/Self/Capabilities');
+		return tmpResult.Body || {};
+	}
+
 	// POST /1.0/NodeRegistration/:id/Approve (user bearer) -> Pending becomes Active.
 	async approveNode(pIDNodeRegistration, pAuth)
 	{

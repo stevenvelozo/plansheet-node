@@ -113,6 +113,14 @@ suite('PlansheetClient', () =>
 		Expect(tmpSent2).to.not.have.property('Plansheets');
 	});
 
+	test('reportCapabilities posts the advertised list to Node/Self/Capabilities with the node bearer', async () =>
+	{
+		let tmpFetch = fakeFetch([ { method: 'POST', path: '/1.0/Node/Self/Capabilities', status: 200, body: { Success: true } } ]);
+		await client(tmpFetch).reportCapabilities([ { Capability: 'plansheet.deploy', Actions: [ 'DeployDev' ] } ], { Bearer: 'pls_node' });
+		Expect(tmpFetch.Calls[0].Options.headers['Authorization']).to.equal('Bearer pls_node');
+		Expect(JSON.parse(tmpFetch.Calls[0].Options.body).Capabilities).to.deep.equal([ { Capability: 'plansheet.deploy', Actions: [ 'DeployDev' ] } ]);
+	});
+
 	test('provisionNode maps a 403 to a role-hint error', async () =>
 	{
 		let tmpFetch = fakeFetch([ { method: 'POST', path: '/1.0/Node/Provision', status: 403, body: { Error: 'content.approve is required' } } ]);

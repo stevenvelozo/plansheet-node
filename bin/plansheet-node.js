@@ -298,12 +298,14 @@ async function commandRun(pArgs)
 	let tmpReportingClient = new libPlansheetClient({ BaseURL: tmpNode.PlansheetURL });
 	let tmpProviders = [];
 	let tmpCapabilityLabels = [];
+	let tmpAdvertised = [];
 	let fAddHarness = (pConfig) =>
 	{
 		pConfig.Log = console;
 		let tmpHarness = new libHarnessCapability(pConfig);
 		tmpProviders.push(new libRunReportingCapability({ Inner: tmpHarness, Client: tmpReportingClient, NodeToken: tmpNode.NodeToken, Log: console }));
 		tmpCapabilityLabels.push(tmpHarness.Capability + ' [' + Object.keys(tmpHarness.actions).join(', ') + ']');
+		tmpAdvertised.push({ Capability: tmpHarness.Capability, Actions: Object.keys(tmpHarness.actions) });
 	};
 
 	for (let i = 0; i < tmpHarnessPaths.length; i++) { fAddHarness(loadHarnessConfig(tmpHarnessPaths[i])); }
@@ -352,6 +354,11 @@ async function commandRun(pArgs)
 		return 2;
 	}
 	console.log('[plansheet-node] Connected as ' + tmpResult.BeaconName + '. Waiting for work. Press Ctrl-C to stop.');
+
+	// Tell plansheet what this node advertises so the activation UI can list it as a candidate (V51, F153).
+	// Best-effort: the node runs whether or not this lands.
+	try { await tmpReportingClient.reportCapabilities(tmpAdvertised, { Bearer: tmpNode.NodeToken }); }
+	catch (pReportError) { console.warn('[plansheet-node]   (could not report capabilities to plansheet: ' + (pReportError && pReportError.message) + ')'); }
 
 	// Hold the process open until a signal; the beacon's heartbeat keeps the event loop live on its own.
 	let tmpShutting = false;
