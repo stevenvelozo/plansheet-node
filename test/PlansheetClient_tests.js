@@ -113,12 +113,14 @@ suite('PlansheetClient', () =>
 		Expect(tmpSent2).to.not.have.property('Plansheets');
 	});
 
-	test('reportCapabilities posts the advertised list to Node/Self/Capabilities with the node bearer', async () =>
+	test('registerSelf posts advertised Capabilities and Version to Node/Self/Register with the node bearer', async () =>
 	{
-		let tmpFetch = fakeFetch([ { method: 'POST', path: '/1.0/Node/Self/Capabilities', status: 200, body: { Success: true } } ]);
-		await client(tmpFetch).reportCapabilities([ { Capability: 'plansheet.deploy', Actions: [ 'DeployDev' ] } ], { Bearer: 'pls_node' });
+		let tmpFetch = fakeFetch([ { method: 'POST', path: '/1.0/Node/Self/Register', status: 200, body: { Success: true } } ]);
+		await client(tmpFetch).registerSelf({ Capabilities: [ { Capability: 'plansheet.deploy', Actions: [ 'DeployDev' ] } ], Version: '1.7.0' }, { Bearer: 'pls_node' });
 		Expect(tmpFetch.Calls[0].Options.headers['Authorization']).to.equal('Bearer pls_node');
-		Expect(JSON.parse(tmpFetch.Calls[0].Options.body).Capabilities).to.deep.equal([ { Capability: 'plansheet.deploy', Actions: [ 'DeployDev' ] } ]);
+		let tmpSent = JSON.parse(tmpFetch.Calls[0].Options.body);
+		Expect(tmpSent.Capabilities).to.deep.equal([ { Capability: 'plansheet.deploy', Actions: [ 'DeployDev' ] } ]);
+		Expect(tmpSent.Version).to.equal('1.7.0');
 	});
 
 	test('provisionNode maps a 403 to a role-hint error', async () =>

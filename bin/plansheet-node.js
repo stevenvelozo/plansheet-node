@@ -353,12 +353,19 @@ async function commandRun(pArgs)
 		console.error('[plansheet-node] Did not join: ' + tmpResult.Reason);
 		return 2;
 	}
-	console.log('[plansheet-node] Connected as ' + tmpResult.BeaconName + '. Waiting for work. Press Ctrl-C to stop.');
+	// Report this node to plansheet as one acknowledged step BEFORE we idle: what it advertises to the hub
+	// (Capabilities) and its running client version (Version), through the Self/Register handshake. This is what
+	// makes the node a candidate on the Capabilities screen and shows its build on the Nodes screen (V51, F153).
+	// Awaited here rather than fired after "Waiting for work", so it cannot lose a race with the process going idle;
+	// still best-effort, so a plansheet hiccup logs but never stops the node from taking work.
+	try
+	{
+		await tmpReportingClient.registerSelf({ Capabilities: tmpAdvertised, Version: _PackageVersion }, { Bearer: tmpNode.NodeToken });
+		console.log('[plansheet-node] Reported ' + tmpAdvertised.length + ' capabilit' + (tmpAdvertised.length === 1 ? 'y' : 'ies') + ' and version ' + _PackageVersion + ' to plansheet.');
+	}
+	catch (pReportError) { console.warn('[plansheet-node]   (could not report to plansheet: ' + (pReportError && pReportError.message) + ')'); }
 
-	// Tell plansheet what this node advertises so the activation UI can list it as a candidate (V51, F153).
-	// Best-effort: the node runs whether or not this lands.
-	try { await tmpReportingClient.reportCapabilities(tmpAdvertised, { Bearer: tmpNode.NodeToken }); }
-	catch (pReportError) { console.warn('[plansheet-node]   (could not report capabilities to plansheet: ' + (pReportError && pReportError.message) + ')'); }
+	console.log('[plansheet-node] Connected as ' + tmpResult.BeaconName + '. Waiting for work. Press Ctrl-C to stop.');
 
 	// Hold the process open until a signal; the beacon's heartbeat keeps the event loop live on its own.
 	let tmpShutting = false;

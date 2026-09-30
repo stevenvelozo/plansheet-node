@@ -105,26 +105,22 @@ class PlansheetClient
 		return tmpResult.Body;
 	}
 
-	// POST /1.0/Node/Self/Register { NodeHost?, NodeKey?, CapabilityJSON? } (node bearer). NodeKey is set-once.
+	// POST /1.0/Node/Self/Register { NodeHost?, NodeKey?, CapabilityJSON?, Capabilities?, Version? } (node bearer).
+	// The node's one acknowledged self-report: NodeKey is set-once, and Capabilities (what it advertises to the hub)
+	// and Version (its running client version) are folded into the SAME handshake so a node reports everything about
+	// itself on connect (V51, F153). The server merges Capabilities/Version into its stored CapabilityJSON and leaves
+	// Workspaces/Toolchains/Roles untouched, so a report that sends only Capabilities+Version never clobbers them.
 	async registerSelf(pOptions, pAuth)
 	{
 		let tmpBody = {};
 		if (pOptions && pOptions.NodeHost) { tmpBody.NodeHost = pOptions.NodeHost; }
 		if (pOptions && pOptions.NodeKey) { tmpBody.NodeKey = pOptions.NodeKey; }
 		if (pOptions && pOptions.CapabilityJSON !== undefined) { tmpBody.CapabilityJSON = pOptions.CapabilityJSON; }
+		if (pOptions && pOptions.Capabilities !== undefined) { tmpBody.Capabilities = pOptions.Capabilities; }
+		if (pOptions && pOptions.Version !== undefined) { tmpBody.Version = pOptions.Version; }
 		let tmpResult = await this._request('POST', '/1.0/Node/Self/Register', { Body: tmpBody, Auth: pAuth });
 		if (tmpResult.StatusCode === 409) { throw new Error('This node already registered a different NodeKey; re-provision it to change identity.'); }
 		this._expectOK(tmpResult, 'Node/Self/Register');
-		return tmpResult.Body || {};
-	}
-
-	// POST /1.0/Node/Self/Capabilities { Capabilities: [{ Capability, Actions:[name] }] } (node bearer). Tells
-	// plansheet what this node advertises, so the activation UI can list it as a candidate (V51, F153).
-	async reportCapabilities(pCapabilities, pAuth)
-	{
-		let tmpBody = { Capabilities: Array.isArray(pCapabilities) ? pCapabilities : [] };
-		let tmpResult = await this._request('POST', '/1.0/Node/Self/Capabilities', { Body: tmpBody, Auth: pAuth });
-		this._expectOK(tmpResult, 'Node/Self/Capabilities');
 		return tmpResult.Body || {};
 	}
 
