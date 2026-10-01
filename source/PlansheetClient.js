@@ -105,10 +105,10 @@ class PlansheetClient
 		return tmpResult.Body;
 	}
 
-	// POST /1.0/Node/Self/Register { NodeHost?, NodeKey?, CapabilityJSON?, Capabilities?, Version? } (node bearer).
+	// POST /1.0/Node/Self/Register { NodeHost?, NodeKey?, CapabilityJSON?, Capabilities?, Version?, Hardware? } (node bearer).
 	// The node's one acknowledged self-report: NodeKey is set-once, and Capabilities (what it advertises to the hub)
-	// and Version (its running client version) are folded into the SAME handshake so a node reports everything about
-	// itself on connect (V51, F153). The server merges Capabilities/Version into its stored CapabilityJSON and leaves
+	// Version (its running client version), and Hardware (its probed box, F155) are folded into the SAME handshake so
+	// a node reports everything about itself on connect. The server merges Capabilities/Version/Hardware into its CapabilityJSON and leaves
 	// Workspaces/Toolchains/Roles untouched, so a report that sends only Capabilities+Version never clobbers them.
 	async registerSelf(pOptions, pAuth)
 	{
@@ -118,6 +118,7 @@ class PlansheetClient
 		if (pOptions && pOptions.CapabilityJSON !== undefined) { tmpBody.CapabilityJSON = pOptions.CapabilityJSON; }
 		if (pOptions && pOptions.Capabilities !== undefined) { tmpBody.Capabilities = pOptions.Capabilities; }
 		if (pOptions && pOptions.Version !== undefined) { tmpBody.Version = pOptions.Version; }
+		if (pOptions && pOptions.Hardware !== undefined) { tmpBody.Hardware = pOptions.Hardware; }
 		let tmpResult = await this._request('POST', '/1.0/Node/Self/Register', { Body: tmpBody, Auth: pAuth });
 		if (tmpResult.StatusCode === 409) { throw new Error('This node already registered a different NodeKey; re-provision it to change identity.'); }
 		this._expectOK(tmpResult, 'Node/Self/Register');

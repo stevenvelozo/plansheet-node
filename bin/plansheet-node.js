@@ -28,6 +28,8 @@ const libLoginFlow = require('../source/LoginFlow.js');
 const libNodeRunner = require('../source/NodeRunner.js');
 const libHarnessCapability = require('../source/HarnessCapability.js');
 const libRunReportingCapability = require('../source/RunReportingCapability.js');
+const libHardwareProbe = require('../source/HardwareProbe.js');
+const libCapabilityReadiness = require('../source/CapabilityReadiness.js');
 const libDefaultHarness = require('../source/DefaultHarness.js');
 
 let _PackageVersion = '0.0.0';
@@ -299,8 +301,35 @@ async function commandRun(pArgs)
 	let tmpProviders = [];
 	let tmpCapabilityLabels = [];
 	let tmpAdvertised = [];
+
+	// Probe the box once, and build the readiness context the advertise gate reads. A capability whose package
+	// declares Resources (hardware or prerequisites) is advertised ONLY when this box satisfies them, so a weak or
+	// unconfigured node never becomes an F153 activation candidate for work it cannot do (V51 F155, WI-513).
+	let tmpHardware = libHardwareProbe.probe();
+	let fCommandExists = (pCommand) =>
+	{
+		let tmpCommand = String(pCommand || '');
+		if (!tmpCommand) { return false; }
+		if (tmpCommand.indexOf('/') >= 0) { try { return libFS.existsSync(tmpCommand); } catch (pIgnore) { return false; } }
+		return String(process.env.PATH || '').split(libPath.delimiter).some((pDir) =>
+		{
+			try { return !!pDir && libFS.existsSync(libPath.join(pDir, tmpCommand)); } catch (pIgnore) { return false; }
+		});
+	};
+	let tmpReadinessContext = {
+		Probe: tmpHardware,
+		Env: process.env,
+		FileExists: (pPath) => { try { return libFS.existsSync(pPath); } catch (pIgnore) { return false; } },
+		CommandExists: fCommandExists
+	};
 	let fAddHarness = (pConfig) =>
 	{
+		let tmpReady = libCapabilityReadiness.evaluate(pConfig.Resources || null, tmpReadinessContext);
+		if (!tmpReady.Ready)
+		{
+			console.warn('[plansheet-node]   not advertising ' + (pConfig.Capability || '(capability)') + ' -- unmet: ' + tmpReady.Unmet.join('; '));
+			return;
+		}
 		pConfig.Log = console;
 		let tmpHarness = new libHarnessCapability(pConfig);
 		tmpProviders.push(new libRunReportingCapability({ Inner: tmpHarness, Client: tmpReportingClient, NodeToken: tmpNode.NodeToken, Log: console }));
@@ -324,7 +353,7 @@ async function commandRun(pArgs)
 		tmpPackages.forEach((pPackage) =>
 		{
 			let tmpManifest = pPackage.Manifest || {};
-			fAddHarness({ Capability: tmpManifest.Capability || pPackage.Capability, Actions: tmpManifest.Actions || {}, MaxOutputBytes: tmpManifest.MaxOutputBytes });
+			fAddHarness({ Capability: tmpManifest.Capability || pPackage.Capability, Actions: tmpManifest.Actions || {}, MaxOutputBytes: tmpManifest.MaxOutputBytes, Resources: tmpManifest.Resources });
 		});
 		console.log('[plansheet-node]   loaded ' + tmpPackages.length + ' capability package(s) from plansheet');
 	}
@@ -360,7 +389,7 @@ async function commandRun(pArgs)
 	// still best-effort, so a plansheet hiccup logs but never stops the node from taking work.
 	try
 	{
-		await tmpReportingClient.registerSelf({ Capabilities: tmpAdvertised, Version: _PackageVersion }, { Bearer: tmpNode.NodeToken });
+		await tmpReportingClient.registerSelf({ Capabilities: tmpAdvertised, Version: _PackageVersion, Hardware: tmpHardware }, { Bearer: tmpNode.NodeToken });
 		console.log('[plansheet-node] Reported ' + tmpAdvertised.length + ' capabilit' + (tmpAdvertised.length === 1 ? 'y' : 'ies') + ' and version ' + _PackageVersion + ' to plansheet.');
 	}
 	catch (pReportError) { console.warn('[plansheet-node]   (could not report to plansheet: ' + (pReportError && pReportError.message) + ')'); }
