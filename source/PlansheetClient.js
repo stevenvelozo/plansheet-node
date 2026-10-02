@@ -144,6 +144,16 @@ class PlansheetClient
 		return tmpResult.Body || {};
 	}
 
+	// GET /1.0/Node/Self for a liveness probe (prune), WITHOUT throwing on an HTTP error. Returns the raw
+	// { StatusCode, Body }: 2xx means the server still knows this node, 401/403/404 means it does not (token
+	// revoked, registration gone, or the plan sheet rebuilt). A transport failure (server unreachable) still
+	// throws, so the caller can tell "the server forgot this node" from "I could not reach the server" and only
+	// prune the former.
+	async probeNodeSelf(pAuth)
+	{
+		return await this._request('GET', '/1.0/Node/Self', { Auth: pAuth });
+	}
+
 	// GET /1.0/CapabilityPackages/Available -- the capability packages this node's plan sheet offers (platform
 	// built-ins cascaded with tenant packages). Returns the Packages array; each carries { PackageKey, Capability,
 	// Version, Manifest } where Manifest.Actions is the harness shape the node builds a provider from.

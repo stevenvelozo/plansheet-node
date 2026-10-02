@@ -9,6 +9,7 @@
  *   list      Show the node connections saved on this machine.
  *   status    Alias for list.
  *   logout    Forget a node connection on this machine (does NOT revoke it server-side; use the plansheet UI).
+ *   prune     Clean up saved node configs on this machine: the ones the server no longer recognizes, or all.
  *   run       Start a runner for a saved node (ships in the next update).
  *   help      This message.
  *
@@ -24,6 +25,7 @@ const libPath = require('path');
 
 const libPlansheetClient = require('../source/PlansheetClient.js');
 const libClientConfig = require('../source/ClientConfig.js');
+const libPrune = require('../source/Prune.js');
 const libLoginFlow = require('../source/LoginFlow.js');
 const libNodeRunner = require('../source/NodeRunner.js');
 const libHarnessCapability = require('../source/HarnessCapability.js');
@@ -48,6 +50,7 @@ const USAGE =
 	'  list      Show the node connections saved on this machine',
 	'  status    Alias for list',
 	'  logout    Forget a saved node on this machine (does not revoke it server-side)',
+	'  prune     Remove saved nodes the server no longer recognizes (or --all), on this machine',
 	'  run       Start a runner for a saved node (blocks; Ctrl-C to stop)',
 	'  help      Show this message',
 	'',
@@ -59,6 +62,16 @@ const USAGE =
 	'  --managed-by ID   IDCustomer of the plan sheet that ADMINISTERS the node (default: your session tenant)',
 	'  --grant ID[,ID]   IDCustomer(s) the node may ACT in (default: just the managed-by tenant)',
 	'  --label TEXT      free-text label for the node',
+	'  --home DIR        config directory (env PLANSHEET_HOME, default ~/.plansheet)',
+	'  --insecure        do not verify plansheet TLS (dev only)',
+	'',
+	'prune options:',
+	'  plansheet-node prune        remove saved nodes the server no longer recognizes (dev rebuilt,',
+	'                              token revoked, node retired); an offline node is kept, not pruned',
+	'  --url URL         limit to saved nodes for this plansheet server (e.g. a dev URL you are done with)',
+	'  --all             remove ALL matching saved nodes without checking the server',
+	'  --dry-run         show what would be removed, remove nothing',
+	'  --yes             do not prompt for confirmation (also --force)',
 	'  --home DIR        config directory (env PLANSHEET_HOME, default ~/.plansheet)',
 	'  --insecure        do not verify plansheet TLS (dev only)',
 	'',
@@ -239,6 +252,88 @@ async function commandLogout(pArgs)
 		console.log('Note: this did not revoke the node on the server. To revoke it, use the plansheet UI (Nodes -> Revoke).');
 	}
 	else { console.log('No saved node matched "' + tmpTarget + '".'); }
+}
+
+// prune: the "docker prune" for saved node configs on this machine. By default it probes each saved node's plan
+// sheet and removes only the ones the server no longer recognizes (dev rebuilt, token revoked, node retired) --
+// a node that is merely offline, or whose server erred, is kept. --all skips the probe and removes everything in
+// the selection; --url narrows the selection to one plansheet. This only ever removes the LOCAL config, never
+// revokes anything server-side (that is the plansheet UI's job). --dry-run shows the plan; --yes/--force skips
+// the prompt.
+async function commandPrune(pArgs)
+{
+	if (pArgs.insecure)
+	{
+		process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+		console.warn('[plansheet-node] TLS verification disabled (--insecure); use for local development only.');
+	}
+
+	let tmpConfig = new libClientConfig({ Home: pArgs.home || process.env.PLANSHEET_HOME });
+	let tmpURL = (typeof pArgs.url === 'string') ? pArgs.url : '';
+	let tmpAll = !!pArgs.all;
+	let tmpDryRun = !!pArgs['dry-run'];
+	let tmpAssumeYes = !!(pArgs.yes || pArgs.force);
+
+	let tmpSelected = libPrune.selectNodes(tmpConfig.listNodes(), tmpURL);
+	if (!tmpSelected.length)
+	{
+		console.log('No saved nodes' + (tmpURL ? (' for ' + libPrune.normalizeURL(tmpURL)) : '') + ' on this machine.');
+		return;
+	}
+
+	let tmpToRemove = [];
+	if (tmpAll)
+	{
+		tmpToRemove = tmpSelected.slice();
+	}
+	else
+	{
+		// Probe each node's plan sheet; remove only the ones the server has forgotten. Offline / erroring nodes
+		// are kept, so a node that is simply not reachable right now never loses its only local token.
+		console.log('Checking ' + tmpSelected.length + ' saved node(s) against their plan sheet...');
+		let tmpKeptUnreachable = 0;
+		for (let i = 0; i < tmpSelected.length; i++)
+		{
+			let tmpNode = tmpSelected[i];
+			let tmpProbe;
+			try
+			{
+				let tmpClient = new libPlansheetClient({ BaseURL: tmpNode.PlansheetURL });
+				let tmpResult = await tmpClient.probeNodeSelf({ Bearer: tmpNode.NodeToken });
+				tmpProbe = { Reachable: true, StatusCode: tmpResult.StatusCode };
+			}
+			catch (pError) { tmpProbe = { Reachable: false }; }
+			let tmpVerdict = libPrune.classifyProbe(tmpProbe);
+			let tmpLabel = tmpNode.NodeName || tmpNode.Slug || '(node)';
+			if (tmpVerdict.Remove) { tmpToRemove.push(tmpNode); console.log('  dead      ' + tmpLabel + '  (' + tmpNode.PlansheetURL + ')'); }
+			else if (tmpVerdict.State === 'alive') { console.log('  live      ' + tmpLabel + '  (kept)'); }
+			else if (tmpVerdict.State === 'unreachable') { tmpKeptUnreachable++; console.log('  offline   ' + tmpLabel + '  (unreachable, kept)'); }
+			else { console.log('  error     ' + tmpLabel + '  (server did not answer cleanly, kept)'); }
+		}
+		if (tmpKeptUnreachable) { console.log('Kept ' + tmpKeptUnreachable + ' unreachable node(s): offline right now is not the same as forgotten by the server.'); }
+	}
+
+	if (!tmpToRemove.length) { console.log('Nothing to prune.'); return; }
+
+	console.log('');
+	console.log((tmpDryRun ? 'Would remove ' : 'About to remove ') + tmpToRemove.length + ' node(s) from this machine:');
+	tmpToRemove.forEach((pNode) => console.log('  ' + (pNode.NodeName || pNode.Slug || '(node)') + '  (' + (pNode.PlansheetURL || '') + ')'));
+	console.log('This removes the local config only; it does not revoke the node on the server.');
+
+	if (tmpDryRun) { console.log('Dry run: nothing was removed.'); return; }
+
+	if (!tmpAssumeYes)
+	{
+		let tmpAnswer = await prompt('Remove these ' + tmpToRemove.length + ' node(s)? [y/N]');
+		if (!/^y(es)?$/i.test(String(tmpAnswer || '').trim())) { console.log('Aborted. Nothing was removed.'); return; }
+	}
+
+	let tmpRemoved = 0;
+	for (let i = 0; i < tmpToRemove.length; i++)
+	{
+		if (tmpConfig.removeNode(tmpToRemove[i].Slug || tmpToRemove[i].NodeName)) { tmpRemoved++; }
+	}
+	console.log('Pruned ' + tmpRemoved + ' node(s) from this machine.');
 }
 
 // Resolve which saved node to run: an explicit name/slug, or the only saved node if there is exactly one.
@@ -451,6 +546,7 @@ async function main()
 		case 'list':
 		case 'status': commandList(tmpArgs); return 0;
 		case 'logout': await commandLogout(tmpArgs); return 0;
+		case 'prune': await commandPrune(tmpArgs); return 0;
 		case 'run': return await commandRun(tmpArgs);
 		default:
 			console.error('Unknown command: ' + tmpCommand);

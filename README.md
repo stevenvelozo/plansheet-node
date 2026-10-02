@@ -52,10 +52,24 @@ the environment.)
 ```
 plansheet-node list             # show the nodes saved on this machine
 plansheet-node logout <name>    # forget a node on this machine
+plansheet-node prune            # clean up saved nodes the server no longer recognizes
 ```
 
 `logout` only removes the local file. To revoke a node on the server, use the plansheet UI
 (Nodes, then Revoke).
+
+`prune` is the bulk cleanup. By default it checks each saved node against its plan sheet and
+removes only the ones the server no longer recognizes (its plan sheet was rebuilt, its token was
+revoked, or the node was retired). A node that is simply offline right now is kept, not pruned.
+Like `logout`, it only removes local files; it never revokes anything on the server.
+
+```
+plansheet-node prune                                  # remove the ones the server forgot
+plansheet-node prune --url https://dev.plansheet.io   # only nodes for this plan sheet
+plansheet-node prune --all                            # remove ALL saved nodes, no server check
+plansheet-node prune --dry-run                        # show what would go, remove nothing
+plansheet-node prune --all --yes                      # no confirmation prompt
+```
 
 ## Where things are kept
 

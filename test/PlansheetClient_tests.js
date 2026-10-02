@@ -157,6 +157,20 @@ suite('PlansheetClient', () =>
 		Expect(tmpFetch.Calls[0].Options.headers['Authorization']).to.equal('Bearer pls_node');
 	});
 
+	test('probeNodeSelf returns the status code and does NOT throw on a 401 (so prune can tell dead from unreachable)', async () =>
+	{
+		// A live node: 2xx comes back with its status for the caller to classify.
+		let tmpAlive = fakeFetch([ { method: 'GET', path: '/1.0/Node/Self', status: 200, body: { Status: 'Active', Active: true } } ]);
+		let tmpOK = await client(tmpAlive).probeNodeSelf({ Bearer: 'pls_live' });
+		Expect(tmpOK.StatusCode).to.equal(200);
+		Expect(tmpAlive.Calls[0].Options.headers['Authorization']).to.equal('Bearer pls_live');
+
+		// A node the server has forgotten: 401 must NOT throw (unlike nodeSelf) -- prune needs the code to decide.
+		let tmpDead = fakeFetch([ { method: 'GET', path: '/1.0/Node/Self', status: 401, body: { Error: 'Authentication required.' } } ]);
+		let tmpGone = await client(tmpDead).probeNodeSelf({ Bearer: 'pls_dead' });
+		Expect(tmpGone.StatusCode).to.equal(401);
+	});
+
 	test('putRunStep puts to the id-scoped route with the node bearer, id in path and body', async () =>
 	{
 		let tmpFetch = fakeFetch([ { method: 'PUT', path: '/1.0/RunStep/77', status: 200, body: { Success: true } } ]);
