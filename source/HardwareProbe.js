@@ -28,27 +28,36 @@ function _ramMB()
 	catch (pError) { return { Total: null, Free: null }; }
 }
 
-// GPU via nvidia-smi: total VRAM in MB, summed across devices. No nvidia-smi (the common case on a laptop or a
-// SQL-only box) -> { Present: false, VRAMMB: null }. A short timeout keeps a wedged driver from stalling startup.
+// GPU via nvidia-smi: each card's NAME and VRAM, so the server can scope which models a box can run (Steven,
+// 2026-10-01) -- not just a pooled number. Returns { Present, VRAMMB (total across cards, for a pooled MinVRAMMB
+// threshold), Cards: [{ Name, VRAMMB }] }. No nvidia-smi (the common case on a laptop or a SQL-only box) ->
+// { Present: false, VRAMMB: null, Cards: [] }. A short timeout keeps a wedged driver from stalling startup.
 function _gpu()
 {
 	try
 	{
 		let tmpOutput = libChildProcess.execFileSync('nvidia-smi',
-			['--query-gpu=memory.total', '--format=csv,noheader,nounits'],
+			['--query-gpu=name,memory.total', '--format=csv,noheader,nounits'],
 			{ encoding: 'utf8', timeout: 4000, stdio: ['ignore', 'pipe', 'ignore'] });
 		let tmpLines = String(tmpOutput || '').split('\n').map((pLine) => pLine.trim()).filter((pLine) => pLine);
-		if (!tmpLines.length) { return { Present: false, VRAMMB: null }; }
+		if (!tmpLines.length) { return { Present: false, VRAMMB: null, Cards: [] }; }
+		let tmpCards = [];
 		let tmpTotal = 0;
 		let tmpAnyNumber = false;
 		tmpLines.forEach((pLine) =>
 		{
-			let tmpValue = Number(String(pLine).replace(/[^0-9.]/g, ''));
-			if (isFinite(tmpValue) && tmpValue > 0) { tmpTotal += tmpValue; tmpAnyNumber = true; }
+			// Each line is "name, memory.total". Split on the LAST comma so a card name containing a comma survives.
+			let tmpComma = pLine.lastIndexOf(',');
+			let tmpName = ((tmpComma >= 0) ? pLine.slice(0, tmpComma) : pLine).trim();
+			let tmpVRAMRaw = (tmpComma >= 0) ? pLine.slice(tmpComma + 1) : '';
+			let tmpValue = Number(String(tmpVRAMRaw).replace(/[^0-9.]/g, ''));
+			let tmpCardVRAM = (isFinite(tmpValue) && tmpValue > 0) ? Math.round(tmpValue) : null;
+			if (tmpCardVRAM !== null) { tmpTotal += tmpCardVRAM; tmpAnyNumber = true; }
+			tmpCards.push({ Name: tmpName || '(unknown GPU)', VRAMMB: tmpCardVRAM });
 		});
-		return { Present: true, VRAMMB: tmpAnyNumber ? Math.round(tmpTotal) : null };
+		return { Present: true, VRAMMB: tmpAnyNumber ? Math.round(tmpTotal) : null, Cards: tmpCards };
 	}
-	catch (pError) { return { Present: false, VRAMMB: null }; }
+	catch (pError) { return { Present: false, VRAMMB: null, Cards: [] }; }
 }
 
 // Free disk on pPath (default the current working directory, where a model or a content mirror would land).
