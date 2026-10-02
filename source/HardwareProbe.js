@@ -28,10 +28,34 @@ function _ramMB()
 	catch (pError) { return { Total: null, Free: null }; }
 }
 
+// Apple Silicon has an integrated Metal GPU that shares the unified memory -- no separate VRAM to query, and
+// nvidia-smi does not exist. When the nvidia path finds nothing on a darwin/arm64 box, report the chip as a GPU whose
+// "VRAM" is the share of unified memory Metal can use (macOS lets it use roughly three quarters by default), so the
+// readiness gate can tell whether a local model fits. Returns null off Apple Silicon (the caller then reports no GPU).
+function _appleSiliconGPU()
+{
+	try
+	{
+		if (process.platform !== 'darwin' || process.arch !== 'arm64') { return null; }
+		let tmpChip = 'Apple Silicon';
+		try
+		{
+			let tmpBrand = libChildProcess.execFileSync('sysctl', ['-n', 'machdep.cpu.brand_string'],
+				{ encoding: 'utf8', timeout: 3000, stdio: ['ignore', 'pipe', 'ignore'] });
+			tmpChip = String(tmpBrand || '').trim() || 'Apple Silicon';
+		}
+		catch (pIgnore) { /* keep the generic name */ }
+		let tmpTotal = libOS.totalmem() / _BYTES_PER_MB;
+		let tmpUsableMB = (isFinite(tmpTotal) && tmpTotal > 0) ? Math.round(tmpTotal * 0.75) : null;
+		return { Present: true, VRAMMB: tmpUsableMB, Cards: [ { Name: tmpChip + ' (unified memory)', VRAMMB: tmpUsableMB } ] };
+	}
+	catch (pError) { return null; }
+}
+
 // GPU via nvidia-smi: each card's NAME and VRAM, so the server can scope which models a box can run (Steven,
 // 2026-10-01) -- not just a pooled number. Returns { Present, VRAMMB (total across cards, for a pooled MinVRAMMB
-// threshold), Cards: [{ Name, VRAMMB }] }. No nvidia-smi (the common case on a laptop or a SQL-only box) ->
-// { Present: false, VRAMMB: null, Cards: [] }. A short timeout keeps a wedged driver from stalling startup.
+// threshold), Cards: [{ Name, VRAMMB }] }. No nvidia-smi falls back to Apple Silicon detection (_appleSiliconGPU);
+// off both it is { Present: false, VRAMMB: null, Cards: [] }. A short timeout keeps a wedged driver from stalling startup.
 function _gpu()
 {
 	try
@@ -40,7 +64,7 @@ function _gpu()
 			['--query-gpu=name,memory.total', '--format=csv,noheader,nounits'],
 			{ encoding: 'utf8', timeout: 4000, stdio: ['ignore', 'pipe', 'ignore'] });
 		let tmpLines = String(tmpOutput || '').split('\n').map((pLine) => pLine.trim()).filter((pLine) => pLine);
-		if (!tmpLines.length) { return { Present: false, VRAMMB: null, Cards: [] }; }
+		if (!tmpLines.length) { return _appleSiliconGPU() || { Present: false, VRAMMB: null, Cards: [] }; }
 		let tmpCards = [];
 		let tmpTotal = 0;
 		let tmpAnyNumber = false;
@@ -57,7 +81,7 @@ function _gpu()
 		});
 		return { Present: true, VRAMMB: tmpAnyNumber ? Math.round(tmpTotal) : null, Cards: tmpCards };
 	}
-	catch (pError) { return { Present: false, VRAMMB: null, Cards: [] }; }
+	catch (pError) { return _appleSiliconGPU() || { Present: false, VRAMMB: null, Cards: [] }; }
 }
 
 // Free disk on pPath (default the current working directory, where a model or a content mirror would land).
