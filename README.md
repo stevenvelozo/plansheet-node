@@ -34,10 +34,14 @@ Connected.
   Saved:       /Users/you/.plansheet/nodes/matchbook-001.json
 ```
 
+The hub URL is learned from plansheet at login (plansheet knows its own hub's public address), so
+you do not have to supply it. Pass `--hub` only to override what the server advertises, or when a
+plan sheet has not been configured with a public hub URL yet.
+
 Non-interactive flags are available for scripting:
 
 ```
-plansheet-node login --url https://plansheet.io --email you@example.com --name Matchbook-001 --hub wss://hub.plansheet.io
+plansheet-node login --url https://plansheet.io --email you@example.com --name Matchbook-001
 ```
 
 (The password and any 2FA code are still prompted for; they are never taken from flags or

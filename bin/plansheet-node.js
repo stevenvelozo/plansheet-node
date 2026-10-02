@@ -53,7 +53,7 @@ const USAGE =
 	'',
 	'login options:',
 	'  --url URL         plansheet server (env PLANSHEET_URL, default ' + DEFAULT_PLANSHEET_URL + ')',
-	'  --hub URL         Ultravisor hub URL the runner will connect to (env ULTRAVISOR_URL)',
+	'  --hub URL         Ultravisor hub URL (optional: learned from plansheet at login; env ULTRAVISOR_URL)',
 	'  --email ADDRESS   account email (prompted if omitted)',
 	'  --name NAME       node name (a default like Matchbook-001 is offered if omitted)',
 	'  --managed-by ID   IDCustomer of the plan sheet that ADMINISTERS the node (default: your session tenant)',
@@ -198,7 +198,7 @@ async function commandLogin(pArgs)
 	console.log('  Node:        ' + tmpResult.NodeName);
 	console.log('  Beacon:      ' + tmpResult.BeaconName);
 	console.log('  Plansheet:   ' + tmpResult.PlansheetURL);
-	console.log('  Hub:         ' + (tmpResult.HubURL || '(not set -- pass --hub or ULTRAVISOR_URL before running)'));
+	console.log('  Hub:         ' + (tmpResult.HubURL || '(not advertised by plansheet -- pass --hub or ULTRAVISOR_URL when running)'));
 	console.log('  Saved:       ' + tmpResult.ConfigPath);
 	console.log('');
 	console.log('Next: plansheet-node run ' + libClientConfig.slug(tmpResult.NodeName));
@@ -280,8 +280,9 @@ async function commandRun(pArgs)
 
 	let tmpConfig = new libClientConfig({ Home: pArgs.home || process.env.PLANSHEET_HOME });
 	let tmpNode = resolveNode(tmpConfig, pArgs._[1]);
+	// --hub / ULTRAVISOR_URL override the saved hub; otherwise use what login saved. An empty value here is not
+	// fatal yet: a node saved before plansheet advertised its hub URL self-heals below by asking the server.
 	let tmpHubURL = pArgs.hub || process.env.ULTRAVISOR_URL || tmpNode.HubURL || '';
-	if (!tmpHubURL) { throw new Error('No hub URL for this node. Pass --hub or set ULTRAVISOR_URL.'); }
 
 	// One node can carry several capabilities: pass --harness a comma-separated list of configs (e.g.
 	// harness.query.example.json,harness.assistant.example.json) and each becomes its own capability provider,
@@ -298,6 +299,27 @@ async function commandRun(pArgs)
 	let tmpHarnessPaths = String(pArgs.harness || '').split(',').map((pPath) => pPath.trim()).filter(Boolean);
 	let tmpPackageSpec = (pArgs.packages === true) ? 'all' : String(pArgs.packages || '').trim();
 	let tmpReportingClient = new libPlansheetClient({ BaseURL: tmpNode.PlansheetURL });
+
+	// Self-heal a node saved before plansheet advertised its hub URL (or re-provisioned): learn it from
+	// GET /1.0/Node/Self and persist it, so the operator never has to pass --hub. An explicit --hub /
+	// ULTRAVISOR_URL already won above and is treated as a transient override, so it is not persisted here.
+	if (!tmpHubURL)
+	{
+		try
+		{
+			let tmpSelf = await tmpReportingClient.nodeSelf({ Bearer: tmpNode.NodeToken });
+			let tmpLearned = String((tmpSelf && tmpSelf.HubURL) || '').trim();
+			if (tmpLearned)
+			{
+				tmpHubURL = tmpLearned;
+				console.log('[plansheet-node]   hub URL learned from plansheet: ' + tmpHubURL);
+				try { tmpNode.HubURL = tmpHubURL; tmpConfig.saveNode(tmpNode); } catch (pSaveIgnore) { /* best-effort persist */ }
+			}
+		}
+		catch (pSelfIgnore) { /* fall through to the error below */ }
+	}
+	if (!tmpHubURL) { throw new Error('No hub URL for this node. Pass --hub or set ULTRAVISOR_URL, or ensure the plan sheet advertises its hub URL.'); }
+
 	let tmpProviders = [];
 	let tmpCapabilityLabels = [];
 	let tmpAdvertised = [];

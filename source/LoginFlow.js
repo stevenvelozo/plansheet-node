@@ -9,7 +9,7 @@
  *   3. POST /1.0/Node/Provision { AgentName: <node name> }  -> the node's own pls_ token
  *   4. POST /1.0/Node/Self/Register { NodeKey }             -> a key minted on THIS machine (never leaves it before)
  *   5. POST /1.0/NodeRegistration/:id/Approve              -> Pending becomes Active
- *   6. GET  /1.0/Node/Self                                 -> confirm Active + a bound BeaconName
+ *   6. GET  /1.0/Node/Self                                 -> confirm Active + a bound BeaconName + learn the hub URL
  *   7. write ~/.plansheet/nodes/<slug>.json               -> the runner's whole identity
  *
  * The interactive parts (the 2FA code, confirming the node name) come in as injected async callbacks so the flow
@@ -100,7 +100,10 @@ class LoginFlow
 			IDNodeRegistration: parseInt(tmpIDRegistration, 10),
 			IDCustomer: tmpSelf.IDCustomer,
 			PlansheetURL: this._Client.baseURL,
-			HubURL: tmpOptions.HubURL || '',
+			// Prefer an explicit --hub, but otherwise take the hub URL plansheet advertises on Self (it knows its own
+			// hub's public address), so the operator never has to supply the hub manually. Empty only when neither is
+			// set, and run() then falls back to --hub / ULTRAVISOR_URL as before.
+			HubURL: tmpOptions.HubURL || tmpSelf.HubURL || '',
 			NodeToken: tmpNodeToken
 		};
 		let tmpPath = this._Config.saveNode(tmpRecord);

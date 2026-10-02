@@ -70,6 +70,26 @@ suite('LoginFlow', () =>
 		Expect(tmpResult.NodeToken).to.equal(undefined);
 	});
 
+	test('learns the hub URL from Self when no --hub is given', async () =>
+	{
+		// The server advertises its public hub URL on Self so the operator need not pass --hub; the saved record
+		// takes it. baseOptions supplies HubURL, so blank it for this case to exercise the fallback.
+		let tmpClient = fakeClient({ nodeSelf: async () => ({ Active: true, Status: 'Active', BeaconName: 'ps.1.nk-x', IDCustomer: 1, HubURL: 'https://hub.dev.plansheet.io' }) });
+		let tmpConfig = fakeConfig();
+		let tmpResult = await flow(tmpClient, tmpConfig).run(baseOptions({ HubURL: '' }));
+		Expect(tmpConfig.Saved[0].HubURL).to.equal('https://hub.dev.plansheet.io');
+		Expect(tmpResult.HubURL).to.equal('https://hub.dev.plansheet.io');
+	});
+
+	test('an explicit --hub overrides the hub URL Self advertises', async () =>
+	{
+		let tmpClient = fakeClient({ nodeSelf: async () => ({ Active: true, Status: 'Active', BeaconName: 'ps.1.nk-x', IDCustomer: 1, HubURL: 'https://hub.dev.plansheet.io' }) });
+		let tmpConfig = fakeConfig();
+		let tmpResult = await flow(tmpClient, tmpConfig).run(baseOptions({ HubURL: 'wss://my-override' }));
+		Expect(tmpConfig.Saved[0].HubURL).to.equal('wss://my-override');
+		Expect(tmpResult.HubURL).to.equal('wss://my-override');
+	});
+
 	test('the admin steps use the user token and the node steps use the node token', async () =>
 	{
 		let tmpClient = fakeClient();
