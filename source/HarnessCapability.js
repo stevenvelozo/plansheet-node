@@ -9,9 +9,11 @@
  * outcome. The Actions config is the knob for "what this node does" -- point it at a stub, an agent, or Claude
  * without changing this file.
  *
- * Config: { Capability, Actions: { <ActionName>: { Command, Args?, Cwd?, Env?, TimeoutMs?, Description? } }, MaxOutputBytes?, StripEnv? }.
- * The executor receives the work item as environment (PLANSHEET_IDWORKITEM, PLANSHEET_WORKITEM_NUMBER,
- * PLANSHEET_WORKITEM_TITLE, PLANSHEET_WORKITEM_HASH, PLANSHEET_ACTION, PLANSHEET_UNITKEY, PLANSHEET_STAGING) plus
+ * Config: { Capability, Actions: { <ActionName>: { Command, Args?, Cwd?, Env?, TimeoutMs?, Description? } }, MaxOutputBytes?, StripEnv?, ProvisionDir? }.
+ * ProvisionDir is where a self-contained package's shipped implementation was materialized (ProvisionStore); the
+ * Action Command runs from it by default. The executor receives the work item as environment (PLANSHEET_IDWORKITEM,
+ * PLANSHEET_WORKITEM_NUMBER, PLANSHEET_WORKITEM_TITLE, PLANSHEET_WORKITEM_HASH, PLANSHEET_ACTION, PLANSHEET_UNITKEY,
+ * PLANSHEET_STAGING, PLANSHEET_PROVISION_DIR) plus
  * any configured Env, and {Placeholder} substitution in Args from the same fields. A Task-backed dispatch also
  * carries one runtime input (Settings.Input -- a user's question, a filled prompt shape, a SQL query): it is
  * written to the command's stdin and available as the {Input} placeholder in Args. Exit 0 is success; anything
@@ -48,6 +50,10 @@ class HarnessCapability extends libCapabilityProviderBase
 		this._Log = tmpConfig.Log || console;
 		// Env vars withheld from every executor. Defaults to the node's own credential; an operator can extend it.
 		this._StripEnv = Array.isArray(tmpConfig.StripEnv) ? tmpConfig.StripEnv : DEFAULT_STRIP_ENV;
+		// The directory a package's Provision block materialized its implementation into (ProvisionStore), if any.
+		// The Action Command runs from here by default (so `node research.js` resolves), and it is exposed to the
+		// command as PLANSHEET_PROVISION_DIR and the {Provision} placeholder in Args/Cwd.
+		this._ProvisionDir = String(tmpConfig.ProvisionDir || '');
 		// Test seam: a spawn(command, args, options) -> ChildProcess-like. Defaults to child_process.spawn.
 		this._Spawn = (typeof tmpConfig.Spawn === 'function') ? tmpConfig.Spawn : libChildProcess.spawn;
 	}
@@ -95,7 +101,8 @@ class HarnessCapability extends libCapabilityProviderBase
 			PLANSHEET_WORKITEM_NUMBER: String(tmpSettings.WorkItemNumber || ''),
 			PLANSHEET_WORKITEM_TITLE: String(tmpSettings.Title || ''),
 			PLANSHEET_UNITKEY: String(tmpSettings.UnitKey || ''),
-			PLANSHEET_STAGING: String(tmpContext.StagingPath || '')
+			PLANSHEET_STAGING: String(tmpContext.StagingPath || ''),
+			PLANSHEET_PROVISION_DIR: this._ProvisionDir
 		};
 		// Inherit the node's environment so the executor has a working PATH/HOME and any tool auth the operator
 		// set deliberately, but STRIP the node's own hub/plansheet credential first: the executor gets work-item
@@ -116,11 +123,14 @@ class HarnessCapability extends libCapabilityProviderBase
 			UnitKey: tmpSettings.UnitKey,
 			Action: pAction,
 			Staging: tmpContext.StagingPath,
+			Provision: this._ProvisionDir,
 			Input: tmpSettings.Input
 		};
 		let tmpArgs = (Array.isArray(tmpActionConfig.Args) ? tmpActionConfig.Args : [])
 			.map((pArg) => this._substitute(String(pArg), tmpSubs));
-		let tmpCwd = tmpActionConfig.Cwd || tmpContext.StagingPath || process.cwd();
+		// Run from an explicit Cwd ({Provision}/{Staging} substituted), else the package's provisioned dir (so a
+		// Command like `node research.js` finds the shipped implementation), else the dispatch staging dir.
+		let tmpCwd = this._substitute(String(tmpActionConfig.Cwd || ''), tmpSubs) || this._ProvisionDir || tmpContext.StagingPath || process.cwd();
 		// Always bound the run: an unset timeout used to mean no timer, so a command that blocks (e.g. reading
 		// stdin) never fired close/error and pinned the work slot forever. Real dispatches carry their own.
 		let tmpTimeoutMs = Number(tmpActionConfig.TimeoutMs) || Number(tmpWorkItem.TimeoutMs) || DEFAULT_TIMEOUT_MS;

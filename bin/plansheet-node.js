@@ -32,6 +32,7 @@ const libHarnessCapability = require('../source/HarnessCapability.js');
 const libRunReportingCapability = require('../source/RunReportingCapability.js');
 const libHardwareProbe = require('../source/HardwareProbe.js');
 const libCapabilityReadiness = require('../source/CapabilityReadiness.js');
+const libProvisionStore = require('../source/ProvisionStore.js');
 const libDefaultHarness = require('../source/DefaultHarness.js');
 
 let _PackageVersion = '0.0.0';
@@ -439,6 +440,7 @@ async function commandRun(pArgs)
 		FileExists: (pPath) => { try { return libFS.existsSync(pPath); } catch (pIgnore) { return false; } },
 		CommandExists: fCommandExists
 	};
+	let tmpProvisionStore = new libProvisionStore({ Home: tmpConfig.home, Log: console });
 	let fAddHarness = (pConfig) =>
 	{
 		let tmpReady = libCapabilityReadiness.evaluate(pConfig.Resources || null, tmpReadinessContext);
@@ -446,6 +448,15 @@ async function commandRun(pArgs)
 		{
 			console.warn('[plansheet-node]   not advertising ' + (pConfig.Capability || '(capability)') + ' -- unmet: ' + tmpReady.Unmet.join('; '));
 			return;
+		}
+		// A self-contained package ships its implementation in a Provision block; materialize it to a per-package
+		// dir the Action Command runs from, so the node pulls the CODE with the manifest -- no second install. Only
+		// after readiness passes, so an un-advertisable capability never writes files. A provision failure (e.g. an
+		// unsafe path) refuses the capability rather than running a half-written one.
+		if (pConfig.Provision)
+		{
+			try { pConfig.ProvisionDir = tmpProvisionStore.materialize(pConfig.PackageKey || pConfig.Capability, pConfig.Version, pConfig.Provision); }
+			catch (pProvErr) { console.warn('[plansheet-node]   not advertising ' + (pConfig.Capability || '(capability)') + ' -- provision failed: ' + pProvErr.message); return; }
 		}
 		pConfig.Log = console;
 		let tmpHarness = new libHarnessCapability(pConfig);
@@ -470,7 +481,7 @@ async function commandRun(pArgs)
 		tmpPackages.forEach((pPackage) =>
 		{
 			let tmpManifest = pPackage.Manifest || {};
-			fAddHarness({ Capability: tmpManifest.Capability || pPackage.Capability, Actions: tmpManifest.Actions || {}, MaxOutputBytes: tmpManifest.MaxOutputBytes, Resources: tmpManifest.Resources });
+			fAddHarness({ Capability: tmpManifest.Capability || pPackage.Capability, Actions: tmpManifest.Actions || {}, MaxOutputBytes: tmpManifest.MaxOutputBytes, Resources: tmpManifest.Resources, Provision: tmpManifest.Provision, PackageKey: pPackage.PackageKey, Version: pPackage.Version });
 		});
 		console.log('[plansheet-node]   loaded ' + tmpPackages.length + ' capability package(s) from plansheet');
 	}
