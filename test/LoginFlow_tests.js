@@ -104,6 +104,32 @@ suite('LoginFlow', () =>
 		Expect(fCall('register').pOpts.NodeKey).to.match(/^nk-testhost-[0-9a-f]{8}$/);
 	});
 
+	test('a supplied Token skips the password login + mint and provisions with that token (SSO / no password)', async () =>
+	{
+		let tmpClient = fakeClient();
+		let tmpResult = await flow(tmpClient, fakeConfig()).run(
+			{ PlansheetURL: 'https://plansheet.example', HubURL: 'wss://hub', Token: 'pls_supplied' });
+		let fHas = (pName) => tmpClient.Calls.some((pC) => pC.m === pName);
+		// No email/password login, no 2FA, no in-flight token mint -- the supplied token stands in for all of it.
+		Expect(fHas('login'), 'no password login').to.equal(false);
+		Expect(fHas('verify'), 'no 2FA').to.equal(false);
+		Expect(fHas('mint'), 'no in-flight mint').to.equal(false);
+		// The supplied token is the admin credential for provision + approve; the node still gets its own token.
+		let fCall = (pName) => tmpClient.Calls.find((pC) => pC.m === pName);
+		Expect(fCall('provision').pAuth.Bearer).to.equal('pls_supplied');
+		Expect(fCall('approve').pAuth.Bearer).to.equal('pls_supplied');
+		Expect(fCall('register').pAuth.Bearer).to.equal('pls_node');
+		Expect(tmpResult.BeaconName).to.equal('ps.1.nk-x');
+	});
+
+	test('without a Token, email and password are still required', async () =>
+	{
+		let tmpThrew = false;
+		try { await flow(fakeClient(), fakeConfig()).run({ PlansheetURL: 'https://plansheet.example' }); }
+		catch (pError) { tmpThrew = true; Expect(pError.message).to.match(/user name|email|password|Token/i); }
+		Expect(tmpThrew).to.equal(true);
+	});
+
 	test('passes the managed-by tenant and grant set through to provision (WI #506)', async () =>
 	{
 		let tmpClient = fakeClient();

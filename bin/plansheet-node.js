@@ -58,7 +58,9 @@ const USAGE =
 	'login options:',
 	'  --url URL         plansheet server (env PLANSHEET_URL, default ' + DEFAULT_PLANSHEET_URL + ')',
 	'  --hub URL         Ultravisor hub URL (optional: learned from plansheet at login; env ULTRAVISOR_URL)',
-	'  --email ADDRESS   account email (prompted if omitted)',
+	'  --email ADDRESS   account email (prompted if omitted; not needed with --token)',
+	'  --token TOKEN     a platform token (env PLANSHEET_TOKEN) to provision with, instead of email+password.',
+	'                    The only way an SSO / Google account (no password) can provision a node.',
 	'  --name NAME       node name (a default like Matchbook-001 is offered if omitted)',
 	'  --managed-by ID   IDCustomer of the plan sheet that ADMINISTERS the node (default: your session tenant)',
 	'  --grant ID[,ID]   IDCustomer(s) the node may ACT in (default: just the managed-by tenant)',
@@ -162,10 +164,19 @@ async function commandLogin(pArgs)
 		console.warn('[plansheet-node] TLS verification disabled (--insecure); use for local development only.');
 	}
 
-	let tmpEmail = pArgs.email || await prompt('Email');
-	if (!tmpEmail) { throw new Error('An email is required.'); }
-	let tmpPassword = await promptHidden('Password');
-	if (!tmpPassword) { throw new Error('A password is required.'); }
+	// A platform token (minted in the app) skips the password login entirely -- the only way an SSO / Google
+	// account, which has no password, can provision a node, and a shortcut for anyone else. --token value, or
+	// PLANSHEET_TOKEN in the env so it never lands in shell history.
+	let tmpToken = pArgs.token || process.env.PLANSHEET_TOKEN || '';
+	let tmpEmail = '';
+	let tmpPassword = '';
+	if (!tmpToken)
+	{
+		tmpEmail = pArgs.email || await prompt('Email');
+		if (!tmpEmail) { throw new Error('An email is required (or pass --token).'); }
+		tmpPassword = await promptHidden('Password');
+		if (!tmpPassword) { throw new Error('A password is required (or pass --token).'); }
+	}
 
 	let tmpHubURL = pArgs.hub || process.env.ULTRAVISOR_URL || process.env.PLANSHEET_HUB_URL || '';
 
@@ -201,6 +212,7 @@ async function commandLogin(pArgs)
 		HubURL: tmpHubURL,
 		UserName: tmpEmail,
 		Password: tmpPassword,
+		Token: tmpToken || undefined,
 		NodeName: pArgs.name,
 		Label: pArgs.label,
 		IDManagedCustomer: tmpManagedBy || undefined,

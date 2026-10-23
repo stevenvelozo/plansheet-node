@@ -47,20 +47,30 @@ class LoginFlow
 		if (typeof this._Prompts.notify === 'function') { try { this._Prompts.notify(pMessage); } catch (pIgnore) { /* progress is best-effort */ } }
 	}
 
-	// pOptions: { PlansheetURL, HubURL, UserName, Password, NodeName?, Label?, Capabilities? }
+	// pOptions: { PlansheetURL, HubURL, UserName, Password, Token?, NodeName?, Label?, Capabilities? }
 	async run(pOptions)
 	{
 		let tmpOptions = pOptions || {};
 		if (!tmpOptions.PlansheetURL) { throw new Error('LoginFlow: PlansheetURL is required.'); }
-		if (!tmpOptions.UserName) { throw new Error('LoginFlow: a user name / email is required.'); }
-		if (!tmpOptions.Password) { throw new Error('LoginFlow: a password is required.'); }
 
-		// 1. Authenticate (with 2FA if the account requires it).
-		let tmpSessionID = await this._authenticate(tmpOptions.UserName, tmpOptions.Password);
-
-		// 2. Mint a durable personal token for the admin steps; it is discarded when run() returns.
-		this._notify('Authenticated. Preparing your node...');
-		let tmpUserToken = (await this._Client.mintToken('plansheet-node CLI', { SessionID: tmpSessionID })).Token;
+		// 1 + 2. Get a user token for the admin steps (provision + approve). A caller can hand one in directly --
+		// a platform token minted in the app -- which is the whole point for an SSO/Google account that has no
+		// password to log in with, and a convenience for anyone else. Otherwise log in with email + password
+		// (and 2FA) and mint a durable token in flight, which is used and discarded exactly as before.
+		let tmpUserToken;
+		if (tmpOptions.Token)
+		{
+			tmpUserToken = String(tmpOptions.Token).trim();
+			this._notify('Using the supplied token. Preparing your node...');
+		}
+		else
+		{
+			if (!tmpOptions.UserName) { throw new Error('LoginFlow: a user name / email is required (or pass a Token).'); }
+			if (!tmpOptions.Password) { throw new Error('LoginFlow: a password is required (or pass a Token).'); }
+			let tmpSessionID = await this._authenticate(tmpOptions.UserName, tmpOptions.Password);
+			this._notify('Authenticated. Preparing your node...');
+			tmpUserToken = (await this._Client.mintToken('plansheet-node CLI', { SessionID: tmpSessionID })).Token;
+		}
 
 		// 3. Name and provision the node.
 		let tmpNodeName = await this._resolveNodeName(tmpOptions);
