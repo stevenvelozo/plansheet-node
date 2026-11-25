@@ -1,18 +1,18 @@
 {
-	"_comment": "A deploy node's harness config. It advertises the plansheet.deploy capability, and for each action plansheet can dispatch, runs a configured command. Plansheet dispatches { Capability: plansheet.deploy, Action: DeployDev } (or DeployProd) through the hub -- the action name IS the whole instruction, exactly like the ops node's RebuildDev. There are no dispatched parameters: DeployDev and DeployProd are DISTINCT actions, each mapped below to a fully specified command, so adding or changing a deploy target is a change to THIS file only, never to plansheet or the node code. Point --harness (or HARNESS_CONFIG) at this file, and set each Command/Args to YOUR real deploy entrypoint (the plansheet-deploy-tool `pdt`, deploy-core, or a wrapper script). The example calls a deploy wrapper you provide; replace it with your actual invocation.",
+	"_comment": "A deploy node's harness config. It mirrors deploy/deploy-node/harness.deploy.json in the plansheet repository, the harness plansheet's own deploy box runs; that file and the README beside it are the reference. It advertises plansheet.deploy with two actions, and both run deploy.sh from the box's source checkout of plansheet. DeployDev takes no input: deploy.sh dev ships the HEAD of that checkout and refuses to roll dev back. DeployProd takes one, the pinned commit. When someone clicks Promote on the Releases page, plansheet pins the commit it recorded for dev and dispatches it as Settings.Input; the harness puts it in place of {Input} as one argument, and deploy.sh prod ships exactly that commit. deploy.sh refuses an empty or malformed pin, a commit the checkout does not have, a commit other than the one dev reports running, and a commit older than the one prod runs, so a DeployProd whose Args lack {Input} refuses every Promote. When either action goes on to deploy, its first line is 'deploy.sh: <env> ships commit <40-hex sha>'; once the run succeeds, plansheet reads that line from the step log and records the commit as what the environment runs, for prod only when it is the pinned commit. Point plansheet-node run --harness at this file, and change the Args paths if the checkout lives elsewhere. The node reads this file once, when it starts, so restart it after a change. Run it on plansheet-node 1.12.0 or later and an ultravisor hub at 1.3.29 or later: an older hub can hand a unit to any node that advertises plansheet.deploy, and an older node runs a unit without waiting for plansheet to accept its start report, so a Promote could run on the wrong node or run twice.",
 	"Capability": "plansheet.deploy",
 	"MaxOutputBytes": 262144,
 	"Actions": {
 		"DeployDev": {
-			"Description": "Deploy the dev environment.",
+			"Description": "Deploy the box checkout's HEAD to dev; refuses to roll dev back.",
 			"Command": "bash",
-			"Args": ["/home/plansheet/plansheet/deploy/scripts/deploy.sh", "dev"],
+			"Args": ["/home/plansheet/src/plansheet/deploy/scripts/deploy.sh", "dev"],
 			"TimeoutMs": 1800000
 		},
 		"DeployProd": {
-			"Description": "Deploy (promote to) the prod environment.",
+			"Description": "Promote: deploy the commit Plansheet pinned from dev ({Input}) to prod; refuses any other commit.",
 			"Command": "bash",
-			"Args": ["/home/plansheet/plansheet/deploy/scripts/deploy.sh", "prod"],
+			"Args": ["/home/plansheet/src/plansheet/deploy/scripts/deploy.sh", "prod", "{Input}"],
 			"TimeoutMs": 1800000
 		}
 	}

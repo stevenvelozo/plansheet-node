@@ -31,9 +31,18 @@ function fakeFetch(pRoutes)
 	return fFetch;
 }
 
-function client(pFetch)
+function client(pFetch, pConfig)
 {
-	return new libPlansheetClient({ BaseURL: 'https://plansheet.example/', Fetch: pFetch });
+	return new libPlansheetClient(Object.assign({ BaseURL: 'https://plansheet.example/', Fetch: pFetch }, pConfig || {}));
+}
+
+// A fetch that never answers and fails only when its request is aborted, the way the real fetch does at a deadline.
+function hangingFetch()
+{
+	return (pURL, pOptions) => new Promise((fResolve, fReject) =>
+	{
+		pOptions.signal.addEventListener('abort', () => fReject(new Error('This operation was aborted')));
+	});
 }
 
 suite('PlansheetClient', () =>
@@ -60,7 +69,7 @@ suite('PlansheetClient', () =>
 	{
 		let tmpFetch = fakeFetch([ { method: 'POST', path: '/1.0/Login', status: 401, body: { Error: 'nope' } } ]);
 		let tmpThrew = false;
-		try { await client(tmpFetch).login('a@b.com', 'bad'); } catch (pError) { tmpThrew = true; Expect(pError.message).to.contain('email and password'); }
+		try { await client(tmpFetch).login('a@b.com', 'bad'); } catch (pError) { tmpThrew = true; Expect(pError.message).to.contain('email and password'); Expect(pError.StatusCode).to.equal(401); }
 		Expect(tmpThrew).to.equal(true);
 	});
 
@@ -78,6 +87,7 @@ suite('PlansheetClient', () =>
 		try { await client(tmpFetch).verifyLogin('ct-9', '000000'); } catch (pError) { tmpError = pError; }
 		Expect(tmpError).to.be.an('error');
 		Expect(tmpError.AttemptsRemaining).to.equal(3);
+		Expect(tmpError.StatusCode).to.equal(401);
 	});
 
 	test('mintToken sends the session cookie and returns the token', async () =>
@@ -127,7 +137,7 @@ suite('PlansheetClient', () =>
 	{
 		let tmpFetch = fakeFetch([ { method: 'POST', path: '/1.0/Node/Provision', status: 403, body: { Error: 'content.approve is required' } } ]);
 		let tmpThrew = false;
-		try { await client(tmpFetch).provisionNode({ AgentName: 'X' }, { Bearer: 'pls_user' }); } catch (pError) { tmpThrew = true; Expect(pError.message).to.contain('Owner or Admin'); }
+		try { await client(tmpFetch).provisionNode({ AgentName: 'X' }, { Bearer: 'pls_user' }); } catch (pError) { tmpThrew = true; Expect(pError.message).to.contain('Owner or Admin'); Expect(pError.StatusCode).to.equal(403); }
 		Expect(tmpThrew).to.equal(true);
 	});
 
@@ -135,7 +145,7 @@ suite('PlansheetClient', () =>
 	{
 		let tmpFetch = fakeFetch([ { method: 'POST', path: '/1.0/Node/Self/Register', status: 409, body: { Error: 'already has a different NodeKey' } } ]);
 		let tmpThrew = false;
-		try { await client(tmpFetch).registerSelf({ NodeKey: 'nk-x' }, { Bearer: 'pls_node' }); } catch (pError) { tmpThrew = true; Expect(pError.message).to.contain('re-provision'); }
+		try { await client(tmpFetch).registerSelf({ NodeKey: 'nk-x' }, { Bearer: 'pls_node' }); } catch (pError) { tmpThrew = true; Expect(pError.message).to.contain('re-provision'); Expect(pError.StatusCode).to.equal(409); }
 		Expect(tmpThrew).to.equal(true);
 	});
 
@@ -218,15 +228,69 @@ suite('PlansheetClient', () =>
 	{
 		let tmpFetch = fakeFetch([ { method: 'POST', path: '/1.0/Token', status: 500, body: { Error: 'boom' } } ]);
 		let tmpThrew = false;
-		try { await client(tmpFetch).mintToken('label', { Bearer: 'pls_user' }); } catch (pError) { tmpThrew = true; Expect(pError.message).to.contain('boom'); }
+		try { await client(tmpFetch).mintToken('label', { Bearer: 'pls_user' }); } catch (pError) { tmpThrew = true; Expect(pError.message).to.contain('boom'); Expect(pError.StatusCode).to.equal(500); }
 		Expect(tmpThrew).to.equal(true);
+	});
+
+	test('a refused RunStep update carries the HTTP status as StatusCode, with the message unchanged', async () =>
+	{
+		let tmpStatuses = [ 401, 403, 404, 409, 503 ];
+		for (let i = 0; i < tmpStatuses.length; i++)
+		{
+			let tmpFetch = fakeFetch([ { method: 'PUT', path: '/1.0/RunStep/77', status: tmpStatuses[i], body: { Error: 'refused ' + tmpStatuses[i] } } ]);
+			let tmpError = null;
+			try { await client(tmpFetch).putRunStep(77, { Status: 'Running' }, { Bearer: 'pls_node' }); } catch (pError) { tmpError = pError; }
+			Expect(tmpError).to.be.an('error');
+			Expect(tmpError.StatusCode).to.equal(tmpStatuses[i]);
+			Expect(tmpError.message).to.equal('RunStep update failed: refused ' + tmpStatuses[i]);
+		}
+		// With no reason in the body, the message names the status itself.
+		let tmpBare = fakeFetch([ { method: 'PUT', path: '/1.0/Run/5', status: 502 } ]);
+		let tmpBareError = null;
+		try { await client(tmpBare).putRun(5, { Status: 'Failed' }, { Bearer: 'pls_node' }); } catch (pError) { tmpBareError = pError; }
+		Expect(tmpBareError.StatusCode).to.equal(502);
+		Expect(tmpBareError.message).to.equal('Run update failed: HTTP 502');
 	});
 
 	test('a transport failure surfaces as an unreachable-plansheet error', async () =>
 	{
 		let fFetch = async () => { throw new Error('ECONNREFUSED'); };
 		let tmpThrew = false;
-		try { await client(fFetch).login('a@b.com', 'pw'); } catch (pError) { tmpThrew = true; Expect(pError.message).to.contain('Could not reach plansheet'); }
+		try { await client(fFetch).login('a@b.com', 'pw'); } catch (pError) { tmpThrew = true; Expect(pError.message).to.contain('Could not reach plansheet'); Expect(pError.StatusCode).to.equal(undefined); }
 		Expect(tmpThrew).to.equal(true);
+	});
+
+	test('putRunStep TimeoutMs shortens that request\'s deadline, and a deadline failure carries no StatusCode', async () =>
+	{
+		let tmpBegan = Date.now();
+		let tmpError = null;
+		// The client's own deadline is the 15 s default; TimeoutMs cuts this one request to 30 ms.
+		try { await client(hangingFetch()).putRunStep(77, { Status: 'Running' }, { Bearer: 'pls_node' }, { TimeoutMs: 30 }); } catch (pError) { tmpError = pError; }
+		Expect(Date.now() - tmpBegan).to.be.below(1000);
+		Expect(tmpError).to.be.an('error');
+		Expect(tmpError.message).to.contain('Could not reach plansheet');
+		Expect(tmpError.StatusCode).to.equal(undefined);
+	});
+
+	test('putRunStep TimeoutMs never lengthens the client\'s own deadline', async () =>
+	{
+		let tmpBegan = Date.now();
+		let tmpError = null;
+		try { await client(hangingFetch(), { RequestTimeoutMs: 30 }).putRunStep(77, { Status: 'Running' }, { Bearer: 'pls_node' }, { TimeoutMs: 60000 }); } catch (pError) { tmpError = pError; }
+		Expect(Date.now() - tmpBegan).to.be.below(1000);
+		Expect(tmpError).to.be.an('error');
+		Expect(tmpError.message).to.contain('Could not reach plansheet');
+	});
+
+	test('putRun TimeoutMs shortens that request\'s deadline too, so the Run close keeps to its retry budget', async () =>
+	{
+		let tmpBegan = Date.now();
+		let tmpError = null;
+		// The client's own deadline is the 15 s default; TimeoutMs cuts this one request to 30 ms.
+		try { await client(hangingFetch()).putRun(5, { Status: 'Succeeded' }, { Bearer: 'pls_node' }, { TimeoutMs: 30 }); } catch (pError) { tmpError = pError; }
+		Expect(Date.now() - tmpBegan).to.be.below(1000);
+		Expect(tmpError).to.be.an('error');
+		Expect(tmpError.message).to.contain('Could not reach plansheet');
+		Expect(tmpError.StatusCode).to.equal(undefined);
 	});
 });

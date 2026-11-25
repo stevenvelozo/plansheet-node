@@ -14,6 +14,10 @@
  *
  * Tokens are secrets. This client never logs a token, a password, or a 2FA code.
  *
+ * Every error thrown for an HTTP answer carries the status as StatusCode (401, 403, 409, 503, ...), so a caller can
+ * tell plansheet refusing a request (4xx) from plansheet failing it (5xx). A transport failure (plansheet could not
+ * be reached, or the request deadline passed) throws with no StatusCode.
+ *
  * @author Steven Velozo <steven@velozo.com>
  * @license MIT
  */
@@ -45,7 +49,7 @@ class PlansheetClient
 	{
 		let tmpResult = await this._request('POST', '/1.0/Login', { Body: { UserName: pUserName, Password: pPassword } });
 		// A 2FA challenge comes back as HTTP 200 with LoggedIn:false; only a real auth failure is non-2xx.
-		if (tmpResult.StatusCode === 401) { throw new Error('Login failed: check the email and password.'); }
+		if (tmpResult.StatusCode === 401) { throw this._statusError('Login failed: check the email and password.', 401); }
 		this._expectOK(tmpResult, 'Login');
 		return tmpResult.Body || {};
 	}
@@ -57,7 +61,7 @@ class PlansheetClient
 		if (tmpResult.StatusCode === 401)
 		{
 			let tmpRemaining = (tmpResult.Body && tmpResult.Body.AttemptsRemaining !== undefined) ? tmpResult.Body.AttemptsRemaining : null;
-			let tmpError = new Error('That code was not accepted.' + (tmpRemaining !== null ? (' Attempts remaining: ' + tmpRemaining + '.') : ''));
+			let tmpError = this._statusError('That code was not accepted.' + (tmpRemaining !== null ? (' Attempts remaining: ' + tmpRemaining + '.') : ''), 401);
 			tmpError.AttemptsRemaining = tmpRemaining;
 			throw tmpError;
 		}
@@ -99,7 +103,7 @@ class PlansheetClient
 		if (pOptions && pOptions.IDManagedCustomer) { tmpBody.IDManagedCustomer = pOptions.IDManagedCustomer; }
 		if (pOptions && Array.isArray(pOptions.Plansheets)) { tmpBody.Plansheets = pOptions.Plansheets; }
 		let tmpResult = await this._request('POST', '/1.0/Node/Provision', { Body: tmpBody, Auth: pAuth });
-		if (tmpResult.StatusCode === 403) { throw new Error('Not allowed to provision a node (needs the Owner or Admin role on this plan sheet).'); }
+		if (tmpResult.StatusCode === 403) { throw this._statusError('Not allowed to provision a node (needs the Owner or Admin role on this plan sheet).', 403); }
 		this._expectOK(tmpResult, 'Node/Provision');
 		if (!tmpResult.Body || !tmpResult.Body.Token || !tmpResult.Body.NodeRegistration) { throw new Error('Provision returned an incomplete response.'); }
 		return tmpResult.Body;
@@ -120,7 +124,7 @@ class PlansheetClient
 		if (pOptions && pOptions.Version !== undefined) { tmpBody.Version = pOptions.Version; }
 		if (pOptions && pOptions.Hardware !== undefined) { tmpBody.Hardware = pOptions.Hardware; }
 		let tmpResult = await this._request('POST', '/1.0/Node/Self/Register', { Body: tmpBody, Auth: pAuth });
-		if (tmpResult.StatusCode === 409) { throw new Error('This node already registered a different NodeKey; re-provision it to change identity.'); }
+		if (tmpResult.StatusCode === 409) { throw this._statusError('This node already registered a different NodeKey; re-provision it to change identity.', 409); }
 		this._expectOK(tmpResult, 'Node/Self/Register');
 		return tmpResult.Body || {};
 	}
@@ -131,7 +135,7 @@ class PlansheetClient
 		let tmpID = parseInt(pIDNodeRegistration, 10);
 		if (!(tmpID > 0)) { throw new Error('approveNode: a NodeRegistration id is required.'); }
 		let tmpResult = await this._request('POST', '/1.0/NodeRegistration/' + tmpID + '/Approve', { Body: {}, Auth: pAuth });
-		if (tmpResult.StatusCode === 403) { throw new Error('Not allowed to approve a node (needs the Owner or Admin role on this plan sheet).'); }
+		if (tmpResult.StatusCode === 403) { throw this._statusError('Not allowed to approve a node (needs the Owner or Admin role on this plan sheet).', 403); }
 		this._expectOK(tmpResult, 'NodeRegistration/Approve');
 		return tmpResult.Body || {};
 	}
@@ -175,29 +179,32 @@ class PlansheetClient
 	// ----- run reporting (the node writes its own step + run over REST) -----
 
 	// PUT /1.0/RunStep/:id -- advance a run step (Status/StageLabel/HeartbeatDate/Log/...). Auto-CRUD update, so
-	// the id rides both the path and the body.
-	async putRunStep(pIDRunStep, pFields, pAuth)
+	// the id rides both the path and the body. pOptions.TimeoutMs, when given, shortens this one request's deadline
+	// (the start and terminal reports hold their retries to a time budget with it).
+	async putRunStep(pIDRunStep, pFields, pAuth, pOptions)
 	{
 		let tmpID = parseInt(pIDRunStep, 10);
 		if (!(tmpID > 0)) { throw new Error('putRunStep: a RunStep id is required.'); }
-		let tmpResult = await this._request('PUT', '/1.0/RunStep/' + tmpID, { Body: Object.assign({ IDRunStep: tmpID }, pFields || {}), Auth: pAuth });
+		let tmpResult = await this._request('PUT', '/1.0/RunStep/' + tmpID, { Body: Object.assign({ IDRunStep: tmpID }, pFields || {}), Auth: pAuth, TimeoutMs: (pOptions && pOptions.TimeoutMs) });
 		this._expectOK(tmpResult, 'RunStep update');
 		return tmpResult.Body || {};
 	}
 
-	// PUT /1.0/Run/:id -- close a run (Status/FinishedDate/ResultLog).
-	async putRun(pIDRun, pFields, pAuth)
+	// PUT /1.0/Run/:id -- close a run (Status/FinishedDate/ResultLog). pOptions.TimeoutMs, when given, shortens this
+	// one request's deadline (the Run close holds its retries to a time budget with it).
+	async putRun(pIDRun, pFields, pAuth, pOptions)
 	{
 		let tmpID = parseInt(pIDRun, 10);
 		if (!(tmpID > 0)) { throw new Error('putRun: a Run id is required.'); }
-		let tmpResult = await this._request('PUT', '/1.0/Run/' + tmpID, { Body: Object.assign({ IDRun: tmpID }, pFields || {}), Auth: pAuth });
+		let tmpResult = await this._request('PUT', '/1.0/Run/' + tmpID, { Body: Object.assign({ IDRun: tmpID }, pFields || {}), Auth: pAuth, TimeoutMs: (pOptions && pOptions.TimeoutMs) });
 		this._expectOK(tmpResult, 'Run update');
 		return tmpResult.Body || {};
 	}
 
 	// ----- internals -----
 
-	// pOptions: { Body?, Auth? } where Auth is { SessionID } (cookie) or { Bearer } (token). Returns { StatusCode, Body }.
+	// pOptions: { Body?, Auth?, TimeoutMs? } where Auth is { SessionID } (cookie) or { Bearer } (token), and TimeoutMs
+	// shortens this one request's deadline (it never lengthens it past RequestTimeoutMs). Returns { StatusCode, Body }.
 	async _request(pMethod, pPath, pOptions)
 	{
 		let tmpOptions = pOptions || {};
@@ -221,12 +228,14 @@ class PlansheetClient
 		}
 
 		// Owned deadline: a hung server should surface as a clean error, not a wedged CLI.
+		let tmpTimeoutMs = this._RequestTimeoutMs;
+		if (Number(tmpOptions.TimeoutMs) > 0) { tmpTimeoutMs = Math.min(tmpTimeoutMs, Number(tmpOptions.TimeoutMs)); }
 		let tmpController = (typeof AbortController === 'function') ? new AbortController() : null;
 		let tmpTimer = null;
 		if (tmpController)
 		{
 			tmpFetchOptions.signal = tmpController.signal;
-			tmpTimer = setTimeout(() => { try { tmpController.abort(); } catch (pIgnore) { /* already done */ } }, this._RequestTimeoutMs);
+			tmpTimer = setTimeout(() => { try { tmpController.abort(); } catch (pIgnore) { /* already done */ } }, tmpTimeoutMs);
 			if (tmpTimer.unref) { tmpTimer.unref(); }
 		}
 
@@ -249,12 +258,21 @@ class PlansheetClient
 		return { StatusCode: tmpResponse.status, Body: tmpBody };
 	}
 
-	// Throw a clean error for any non-2xx that the typed methods have not already special-cased.
+	// Throw a clean error for any non-2xx that the typed methods have not already special-cased. The message is the
+	// server's own reason; StatusCode carries the HTTP status.
 	_expectOK(pResult, pWhat)
 	{
 		if (pResult.StatusCode >= 200 && pResult.StatusCode < 300) { return; }
 		let tmpMessage = (pResult.Body && (pResult.Body.Error || pResult.Body.Message)) ? (pResult.Body.Error || pResult.Body.Message) : ('HTTP ' + pResult.StatusCode);
-		throw new Error(pWhat + ' failed: ' + tmpMessage);
+		throw this._statusError(pWhat + ' failed: ' + tmpMessage, pResult.StatusCode);
+	}
+
+	// An Error for an HTTP answer, with its status attached as StatusCode.
+	_statusError(pMessage, pStatusCode)
+	{
+		let tmpError = new Error(pMessage);
+		tmpError.StatusCode = pStatusCode;
+		return tmpError;
 	}
 }
 
