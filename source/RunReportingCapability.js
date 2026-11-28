@@ -22,14 +22,14 @@
  * The terminal reports are retried the same way, on the start report's backoff and each inside a budget of its own:
  * first the step's Succeeded or Failed with its Log, then the Run close, which goes out only once plansheet has
  * accepted the step's report. Every attempt sends the same body, and a repeat is safe: plansheet takes the status a
- * row already has as no transition. The order matters for a hub deploy. Plansheet records what the environment now
- * runs, and books its As-Builts, when the run first moves into Succeeded, from the step's stored status and Log, and
- * only that once; a close that reached plansheet without the step's outcome would record nothing, and no later report
- * could make it. So when the step report never lands, the Run close is not sent and the run stays open. A 4xx on a
- * terminal report is final, as on the start report: it is logged and not retried. On the step report a 409 means a
- * person closed the step or its run first (a second Stop fails a running step), or an approver corrected it, and a
- * 403 that another node holds the run; the Run close is not sent then either, since plansheet would refuse it for the
- * same reason.
+ * row already has as no transition. The node never closes a run before plansheet holds its step's outcome: when the
+ * step report never lands, the Run close is not sent, and the run stays open for a person to close. Plansheet's
+ * deploy ledger reads that outcome too, the step's stored status and Log, when a hub deploy run closes Succeeded. The
+ * ledger is legacy plansheet code that step 5 of plansheet's release cut deletes (WI #626), and this file does not
+ * depend on it. A 4xx on a terminal report is final, as on the start report: it is logged and not retried. On the
+ * step report a 409 means a person closed the step or its run first (a second Stop fails a running step), or an
+ * approver corrected it, and a 403 that another node holds the run; the Run close is not sent then either, since
+ * plansheet would refuse it for the same reason.
  *
  * Progress reports are best-effort and never retried. No report ever fails the work: the hub gets the unit's own
  * outcome once the terminal reports are done, whatever became of them. A unit with no IDRunStep passes straight
@@ -184,9 +184,9 @@ class RunReportingCapability
 	}
 
 	// Send the terminal step report, then close the Run, each retried like the start report inside a budget of its own.
-	// The Run close goes out only once plansheet has accepted the step report: a close without the step's outcome stored
-	// would have plansheet record nothing for a hub deploy, for good. A report plansheet does not take is logged with
-	// why, and nothing is sent after it. Resolves once both are done or given up on; it never rejects.
+	// The Run close goes out only once plansheet has accepted the step report, so a run never closes before plansheet
+	// holds its step's outcome (see the header). A report plansheet does not take is logged with why, and nothing is
+	// sent after it. Resolves once both are done or given up on; it never rejects.
 	async _sendTerminalReports(pIDRunStep, pIDRun, pAuth, pStepFields, pRunFields)
 	{
 		let tmpStep = await this._sendReport('RunStep ' + pIDRunStep + ' ' + pStepFields.Status + ' report',

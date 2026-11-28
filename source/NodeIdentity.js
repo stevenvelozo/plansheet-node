@@ -7,8 +7,8 @@
  *           is a friendly word plus a zero-padded ordinal, e.g. 'Matchbook-001'. The word is stable per machine
  *           (derived from the hostname) so a second runner on the same box reads as 'Matchbook-002'; the user can
  *           always type their own at the prompt.
- * NodeKey   is the machine identity slug the node self-registers; the server derives BeaconName = ps.<IDCustomer>.<NodeKey>
- *           from it. Format 'nk-<hostslug>-<random>', minted once and never reused.
+ * NodeKey   is the machine identity slug the node self-registers; the server derives BeaconName = ps.<NodeKey> from it,
+ *           with no tenant segment. Format 'nk-<hostslug>-<random>', minted once and never reused.
  *
  * @author Steven Velozo <steven@velozo.com>
  * @license MIT

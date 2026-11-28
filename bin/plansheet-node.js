@@ -10,7 +10,7 @@
  *   status    Alias for list.
  *   logout    Forget a node connection on this machine (does NOT revoke it server-side; use the plansheet UI).
  *   prune     Clean up saved node configs on this machine: the ones the server no longer recognizes, or all.
- *   run       Start a runner for a saved node (ships in the next update).
+ *   run       Start a runner for a saved node: it joins the hub and blocks until Ctrl-C or SIGTERM.
  *   help      This message.
  *
  * Secrets (password, 2FA code, tokens) are never echoed or logged.
